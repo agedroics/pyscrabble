@@ -1,10 +1,10 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import Callable, List
 
 from bidict import bidict
 
-from pyscrabble.common import Message, ByteStream
 from pyscrabble.game import Tile
+from pyscrabble.network import Stream
 
 
 def _int_to_byte(n: int) -> bytes:
@@ -13,23 +13,28 @@ def _int_to_byte(n: int) -> bytes:
 
 def serializer(func: Callable[['Message'], bytes]) -> Callable[['Message'], bytes]:
     def wrapper(self: 'Message') -> bytes:
-        return ProtocolMessage._prefix_map.inv[type(self)] + func(self)
+        return Message._prefix_map.inv[type(self)] + func(self)
     return wrapper
 
 
-class ProtocolMessage(Message, ABC):
+class Message(ABC):
     @serializer
     def serialize(self) -> bytes:
         return b''
 
+    @staticmethod
+    @abstractmethod
+    def deserialize(stream: 'Stream'):
+        ...
+
     @classmethod
-    def _deserialize(cls, stream: ByteStream):
+    def _deserialize(cls, stream: Stream):
         return cls()
 
 
-class ClientMessage(ProtocolMessage, ABC):
+class ClientMessage(Message, ABC):
     @staticmethod
-    def deserialize(stream: ByteStream) -> 'ClientMessage':
+    def deserialize(stream: Stream) -> 'ClientMessage':
         return ClientMessage._prefix_map[stream.get_bytes(1)]._deserialize(stream)
 
 
@@ -43,8 +48,8 @@ class Join(ClientMessage):
         return _int_to_byte(len(b)) + b
 
     @classmethod
-    def _deserialize(cls, stream: ByteStream) -> 'Join':
-        return cls(stream.get_string(stream.get_int()))
+    def _deserialize(cls, stream: Stream) -> 'Join':
+        return cls(stream.get_str(stream.get_int()))
 
 
 class Ready(ClientMessage):
@@ -68,7 +73,7 @@ class TileExchange(ClientMessage):
         return _int_to_byte(len(self.tile_ids)) + bytes(self.tile_ids)
 
     @classmethod
-    def _deserialize(cls, stream: ByteStream) -> 'TileExchange':
+    def _deserialize(cls, stream: Stream) -> 'TileExchange':
         return cls([tile_id for tile_id in stream.get_bytes(stream.get_int())])
 
 
@@ -96,13 +101,13 @@ class PlaceTiles(ClientMessage):
         return result
 
     @classmethod
-    def _deserialize(cls, stream: ByteStream) -> 'PlaceTiles':
+    def _deserialize(cls, stream: Stream) -> 'PlaceTiles':
         tiles: List[PlaceTilesTile] = []
         for _ in range(stream.get_int()):
             position = stream.get_int()
             tile_id = stream.get_int()
             m = stream.get_int()
-            letter = stream.get_string(m) if m else None
+            letter = stream.get_str(m) if m else None
             tiles.append(PlaceTilesTile(position, tile_id, letter))
         return cls(tiles)
 
@@ -117,8 +122,8 @@ class Chat(ClientMessage):
         return len(b).to_bytes(2, byteorder='big') + b
 
     @classmethod
-    def _deserialize(cls, stream: ByteStream) -> 'Chat':
-        return cls(stream.get_string(stream.get_int(2)))
+    def _deserialize(cls, stream: Stream) -> 'Chat':
+        return cls(stream.get_str(stream.get_int(2)))
 
 
 ClientMessage._prefix_map = bidict({
@@ -132,9 +137,9 @@ ClientMessage._prefix_map = bidict({
 })
 
 
-class ServerMessage(ProtocolMessage, ABC):
+class ServerMessage(Message, ABC):
     @staticmethod
-    def deserialize(stream: ByteStream) -> 'ServerMessage':
+    def deserialize(stream: Stream) -> 'ServerMessage':
         return ServerMessage._prefix_map[stream.get_bytes(1)]._deserialize(stream)
 
 
@@ -160,9 +165,9 @@ class JoinOk(ServerMessage):
         return result
 
     @classmethod
-    def _deserialize(cls, stream: ByteStream) -> 'JoinOk':
+    def _deserialize(cls, stream: Stream) -> 'JoinOk':
         self_player_id = stream.get_int()
-        players = [PlayerInfo(stream.get_int(), bool(stream.get_int()), stream.get_string(stream.get_int()))
+        players = [PlayerInfo(stream.get_int(), bool(stream.get_int()), stream.get_str(stream.get_int()))
                    for _ in range(stream.get_int())]
         return cls(self_player_id, players)
 
@@ -177,8 +182,8 @@ class ActionRejected(ServerMessage):
         return len(b).to_bytes(2, byteorder='big') + b
 
     @classmethod
-    def _deserialize(cls, stream: ByteStream) -> 'ActionRejected':
-        return cls(stream.get_string(stream.get_int(2)))
+    def _deserialize(cls, stream: Stream) -> 'ActionRejected':
+        return cls(stream.get_str(stream.get_int(2)))
 
 
 class PlayerJoined(ServerMessage):
@@ -192,8 +197,8 @@ class PlayerJoined(ServerMessage):
         return _int_to_byte(self.player_id) + _int_to_byte(len(b)) + b
 
     @classmethod
-    def _deserialize(cls, stream: ByteStream) -> 'PlayerJoined':
-        return cls(stream.get_int(), stream.get_string(stream.get_int()))
+    def _deserialize(cls, stream: Stream) -> 'PlayerJoined':
+        return cls(stream.get_int(), stream.get_str(stream.get_int()))
 
 
 class PlayerLeft(ServerMessage):
@@ -205,7 +210,7 @@ class PlayerLeft(ServerMessage):
         return _int_to_byte(self.player_id)
 
     @classmethod
-    def _deserialize(cls, stream: ByteStream) -> 'PlayerLeft':
+    def _deserialize(cls, stream: Stream) -> 'PlayerLeft':
         return cls(stream.get_int())
 
 
@@ -218,7 +223,7 @@ class PlayerReady(ServerMessage):
         return _int_to_byte(self.player_id)
 
     @classmethod
-    def _deserialize(cls, stream: ByteStream) -> 'PlayerReady':
+    def _deserialize(cls, stream: Stream) -> 'PlayerReady':
         return cls(stream.get_int())
 
 
@@ -243,7 +248,7 @@ class StartTurn(ServerMessage):
         return result
 
     @classmethod
-    def _deserialize(cls, stream: ByteStream) -> 'StartTurn':
+    def _deserialize(cls, stream: Stream) -> 'StartTurn':
         player_id = stream.get_int()
         timer = stream.get_int(2)
         tiles_left = stream.get_int()
@@ -252,7 +257,7 @@ class StartTurn(ServerMessage):
             tile_id = stream.get_int()
             points = stream.get_int()
             m = stream.get_int()
-            letter = stream.get_string(m) if m else None
+            letter = stream.get_str(m) if m else None
             tiles.append(Tile(tile_id, points, letter))
         return cls(player_id, timer, tiles_left, tiles)
 
@@ -281,10 +286,10 @@ class EndTurn(ServerMessage):
         return result
 
     @classmethod
-    def _deserialize(cls, stream: ByteStream) -> 'EndTurn':
+    def _deserialize(cls, stream: Stream) -> 'EndTurn':
         player_id = stream.get_int()
         score = stream.get_int(2)
-        tiles = [EndTurnTile(stream.get_int(), stream.get_int(), stream.get_string(stream.get_int()))
+        tiles = [EndTurnTile(stream.get_int(), stream.get_int(), stream.get_str(stream.get_int()))
                  for _ in range(stream.get_int())]
         return cls(player_id, score, tiles)
 
@@ -307,7 +312,7 @@ class EndGame(ServerMessage):
         return result
 
     @classmethod
-    def _deserialize(cls, stream: ByteStream) -> 'EndGame':
+    def _deserialize(cls, stream: Stream) -> 'EndGame':
         return cls([EndGamePlayer(stream.get_int(), stream.get_int(2)) for _ in range(stream.get_int())])
 
 
@@ -326,8 +331,8 @@ class PlayerChat(ServerMessage):
         return _int_to_byte(self.player_id) + _int_to_byte(len(b)) + b
 
     @classmethod
-    def _deserialize(cls, stream: ByteStream) -> 'PlayerChat':
-        return cls(stream.get_int(), stream.get_string(stream.get_int(2)))
+    def _deserialize(cls, stream: Stream) -> 'PlayerChat':
+        return cls(stream.get_int(), stream.get_str(stream.get_int(2)))
 
 
 class Notification(ServerMessage):
@@ -340,8 +345,8 @@ class Notification(ServerMessage):
         return _int_to_byte(len(b)) + b
 
     @classmethod
-    def _deserialize(cls, stream: ByteStream) -> 'Notification':
-        return cls(stream.get_string(stream.get_int(2)))
+    def _deserialize(cls, stream: Stream) -> 'Notification':
+        return cls(stream.get_str(stream.get_int(2)))
 
 
 ServerMessage._prefix_map = bidict({
@@ -358,4 +363,4 @@ ServerMessage._prefix_map = bidict({
     b'\x11': Notification
 })
 
-ProtocolMessage._prefix_map = bidict({**ClientMessage._prefix_map, **ServerMessage._prefix_map})
+Message._prefix_map = bidict({**ClientMessage._prefix_map, **ServerMessage._prefix_map})

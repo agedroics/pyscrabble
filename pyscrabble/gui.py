@@ -2,6 +2,9 @@ import sys
 import tkinter as tk
 import tkinter.messagebox
 from abc import ABC, abstractmethod
+from queue import Queue
+
+from pyscrabble.game import Game, Player
 
 
 class MainWindow(tk.Tk):
@@ -122,7 +125,10 @@ class HostGame(StartGame):
         self.__timer_entry.grid(row=2, column=1, padx=(0, 4), pady=(0, 6), sticky='W')
 
     def _button_action(self, name: str, ip: str, port: int):
-        pass
+        queue = Queue()
+        host = Player(name, queue)
+        game = Game()
+        game.players[0] = host
 
 
 class JoinGame(StartGame):

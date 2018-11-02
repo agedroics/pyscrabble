@@ -1,5 +1,10 @@
 from enum import Enum
+from queue import Queue
+from threading import Lock, Thread
 from typing import List
+
+import pyscrabble.protocol as protocol
+from pyscrabble.network import Stream, StreamWorker
 
 
 class Tile:
@@ -10,11 +15,15 @@ class Tile:
 
 
 class Player:
-    def __init__(self, player_id: int, name: str):
-        self.id = player_id
+    def __init__(self, name: str, queue: Queue):
         self.name = name
         self.score = 0
         self.tiles: List[Tile] = []
+        self.queue = queue
+
+    def reset(self):
+        self.score = 0
+        self.tiles.clear()
 
 
 class SquareType(Enum):
@@ -50,3 +59,32 @@ class Board:
 
     def __getitem__(self, item):
         return self.__squares[item]
+
+
+class Game:
+    def __init__(self):
+        self.players = {i: None for i in range(4)}
+        self.players_lock = Lock()
+        self.queue = Queue()
+
+        self.board: Board = None
+
+    def start(self):
+        self.board = Board()
+
+    def handle_connection(self, stream: Stream):
+        self.players_lock.acquire()
+        free_slot = next((i for i in self.players.keys() if self.players[i] is None), None)
+        if not free_slot:
+            self.players_lock.release()
+            stream.send_message(protocol.ActionRejected('Server is full'))
+            stream.close()
+        else:
+            msg = stream.get_msg()
+            if isinstance(msg, protocol.Join):
+                worker = StreamWorker(stream, self.queue)
+                player = Player(msg.name, worker.queue)
+                self.players[free_slot] = player
+                self.players_lock.release()
+                Thread(target=worker.listen_incoming()).start()
+                worker.listen_outgoing()
