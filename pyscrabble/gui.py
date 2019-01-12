@@ -4,7 +4,8 @@ import tkinter.messagebox
 from abc import ABC, abstractmethod
 from queue import Queue
 
-from pyscrabble.game import Game, Player
+import pyscrabble.common.protocol as proto
+from pyscrabble.server.server import Server
 
 
 class MainWindow(tk.Tk):
@@ -14,12 +15,12 @@ class MainWindow(tk.Tk):
         self.title('PyScrabble')
         self.resizable(False, False)
         self.__frame = None
-        self.set_frame(MainMenu)
+        self.set_frame(MainMenu(self))
 
-    def set_frame(self, frame_class):
+    def set_frame(self, frame):
         if self.__frame is not None:
             self.__frame.destroy()
-        self.__frame = frame_class(self)
+        self.__frame = frame
         self.__frame.pack(fill='both', padx=14, pady=10)
         self.update_idletasks()
 
@@ -28,9 +29,9 @@ class MainMenu(tk.Frame):
     def __init__(self, master: tk.Tk):
         super().__init__(master)
 
-        tk.Button(self, text='Host Game', command=lambda: master.set_frame(HostGame), width=30)\
+        tk.Button(self, text='Host Game', command=lambda: master.set_frame(HostGame(self.master)), width=30)\
             .pack(fill='x', pady=(0, 6))
-        tk.Button(self, text='Join Game', command=lambda: master.set_frame(JoinGame))\
+        tk.Button(self, text='Join Game', command=lambda: master.set_frame(JoinGame(self.master)))\
             .pack(fill='x', pady=(0, 6))
         tk.Button(self, text='Exit', command=sys.exit)\
             .pack(fill='x')
@@ -81,7 +82,7 @@ class StartGame(ABC, tk.Frame):
 
         tk.Button(self, text=button_label, command=self.__on_start_clicked) \
             .grid(ipadx=20, padx=(0, 6), row=1, column=1, sticky='E')
-        tk.Button(self, text='Back', command=lambda: master.set_frame(MainMenu)) \
+        tk.Button(self, text='Back', command=lambda: master.set_frame(MainMenu(self.master))) \
             .grid(ipadx=20, row=1, column=2, sticky='E')
 
     def __on_start_clicked(self):
@@ -125,10 +126,8 @@ class HostGame(StartGame):
         self.__timer_entry.grid(row=2, column=1, padx=(0, 4), pady=(0, 6), sticky='W')
 
     def _button_action(self, name: str, ip: str, port: int):
-        queue = Queue()
-        host = Player(name, queue)
-        game = Game()
-        game.players[0] = host
+        server = Server()
+        server.start(ip, port)
 
 
 class JoinGame(StartGame):
@@ -140,3 +139,27 @@ class JoinGame(StartGame):
 
     def _button_action(self, name: str, ip: str, port: int):
         pass
+
+
+class ChatFrame(tk.Frame):
+    def __init__(self, parent, queue: Queue):
+        super().__init__(parent)
+
+        self.__queue = queue
+
+        scrollbar = tk.Scrollbar(self)
+        self.__text = tk.Text(scrollbar)
+        self.__text.pack()
+        scrollbar.pack()
+
+        tk.Button(self, text='Send', command=self.__on_send).pack()
+
+    def __on_send(self):
+        self.__queue.put(proto.Chat(self.__text.get()))
+
+
+class Lobby(tk.Frame):
+    def __init__(self, master: tk.Tk):
+        super().__init__(master)
+
+        self.__chat_text
