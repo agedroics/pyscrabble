@@ -3,7 +3,7 @@ from typing import List, Optional
 
 
 class Tile:
-    def __init__(self, tile_id: Optional[int], points: int, letter: str):
+    def __init__(self, tile_id: Optional[int], points: int, letter: Optional[str]):
         self.id = tile_id
         self.points = points
         self.letter = letter
@@ -44,8 +44,8 @@ class Board:
     __layout += __layout[-2::-1]
 
     def __init__(self):
-        self.__squares = [[Square(t) for t in row] for row in Board.__layout]
+        self.squares = [[Square(t) for t in row] for row in Board.__layout]
 
     def __getitem__(self, i: int) -> 'Square':
-        row = self.__squares[i // len(self.__squares)]
+        row = self.squares[i // len(self.squares)]
         return row[i % len(row)]

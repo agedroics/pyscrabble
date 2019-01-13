@@ -1,7 +1,7 @@
 import random
 from queue import Queue
 from threading import Lock
-from typing import List
+from typing import List, Tuple
 
 
 class Game:
@@ -25,7 +25,7 @@ class Game:
                 client.worker.queue_out.put(msg)
 
     def load_tiles(self):
-        self.free_tiles = [Tile(i, i, chr(i)) for i in range(65, 91)]
+        self.free_tiles = Game._tiles.copy()
         random.shuffle(self.free_tiles)
 
     def process_incoming_requests(self):
@@ -42,3 +42,41 @@ from pyscrabble.common.model import Board, Tile
 from pyscrabble.server.server import Client
 
 import pyscrabble.common.protocol as proto
+
+Game._tiles: List[Tuple[str, int]] = [
+    *2 * [(None, 0)],
+
+    *12 * [('E', 1)],
+    *9 * [('A', 1)],
+    *9 * [('I', 1)],
+    *8 * [('O', 1)],
+    *6 * [('N', 1)],
+    *6 * [('R', 1)],
+    *6 * [('T', 1)],
+    *4 * [('L', 1)],
+    *4 * [('S', 1)],
+    *4 * [('U', 1)],
+
+    *4 * [('D', 2)],
+    *3 * [('G', 2)],
+
+    *2 * [('B', 3)],
+    *2 * [('C', 3)],
+    *2 * [('M', 3)],
+    *2 * [('P', 3)],
+
+    *2 * [('F', 4)],
+    *2 * [('H', 4)],
+    *2 * [('V', 4)],
+    *2 * [('W', 4)],
+    *2 * [('Y', 4)],
+
+    ('K', 5),
+
+    ('J', 8),
+    ('X', 8),
+
+    ('Q', 10),
+    ('Z', 10)
+]
+Game._tiles = [Tile(tile_id, points, letter) for tile_id, (letter, points) in enumerate(Game._tiles)]

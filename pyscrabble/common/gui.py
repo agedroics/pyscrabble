@@ -2,10 +2,12 @@ import sys
 import tkinter as tk
 import tkinter.messagebox
 from abc import ABC, abstractmethod
-from typing import Optional, Type
+from tkinter import simpledialog
+from typing import Tuple, Optional, Type, List, Callable, Any, Dict
 
 import pyscrabble.common.protocol as proto
 from pyscrabble.client.connection import Connection
+from pyscrabble.common.model import SquareType, Tile
 from pyscrabble.server.server import Server
 
 server: 'Server' = None
@@ -165,13 +167,13 @@ class ChatFrame(tk.Frame):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
-        self.__txt = tk.Text(self, state=tk.DISABLED, wrap=tk.WORD, width=30)
+        self.__txt = tk.Text(self, state=tk.DISABLED, wrap=tk.WORD, width=40)
         self.__txt.grid(row=0, column=0, columnspan=2, pady=(0, 6), sticky=tk.NSEW)
 
         scrollbar = tk.Scrollbar(self, orient=tk.VERTICAL, command=self.__txt.yview)
         scrollbar.grid(row=0, column=2, pady=(0, 6), sticky=tk.NS)
 
-        self.__txt['yscrollcommand'] = scrollbar.set
+        self.__txt.configure(yscrollcommand=scrollbar.set)
 
         self.__text_entry = tk.Entry(self)
         self.__text_entry.bind('<Return>', self.__on_send)
@@ -195,7 +197,7 @@ class ChatFrame(tk.Frame):
 
 class LobbyFrame(tk.Frame):
     def __init__(self, parent, conn: 'Connection'):
-        super().__init__(parent)
+        super().__init__(parent, width=250)
 
         self.__conn = conn
         self.rowconfigure(0, weight=1)
@@ -229,31 +231,245 @@ class LobbyFrame(tk.Frame):
                 .grid(row=i, column=0, pady=(2, 0), sticky=tk.W)
             tk.Label(self.__players_frame, text='READY' if client.ready else '')\
                 .grid(row=i, column=1, pady=(2, 0), sticky=tk.E)
+        self.update_idletasks()
+
+
+class BoardFrame(tk.Frame):
+    def __init__(self, parent, conn: 'Connection', on_tile_dropped: Callable[['Tile', int, int, bool], Any]):
+        super().__init__(parent)
+
+        self.__conn = conn
+        self.__on_tile_dropped = on_tile_dropped
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+
+        self.board = tk.Canvas(self, width=750, height=750, scrollregion=(0, 0, 750, 750))
+        self.board.grid(row=0, column=0)
+        self.board.bind('<Button-1>', self.__on_press)
+        self.board.bind('<ButtonRelease-1>', self.__on_release)
+        self.board.bind('<ButtonRelease-3>', self.__on_right_release)
+
+        h_scrollbar = tk.Scrollbar(self, orient=tk.HORIZONTAL, command=self.board.xview)
+        h_scrollbar.grid(row=1, column=0, sticky=tk.EW)
+
+        v_scrollbar = tk.Scrollbar(self, orient=tk.VERTICAL, command=self.board.yview)
+        v_scrollbar.grid(row=0, column=1, sticky=tk.NS)
+
+        self.board.configure(xscrollcommand=h_scrollbar.set, yscrollcommand=v_scrollbar.set)
+
+        self.temp_tiles: Dict[int, Dict[int, Tuple[Tile, List[int]]]] = {}
+        self.__picked_up_tile: 'Tile' = None
+
+    __lookup = {
+        SquareType.NORMAL: (None, '#d2c5ac', None),
+        SquareType.DLS: ('DOUBLE LETTER SCORE', '#bcd4d1', 'black'),
+        SquareType.TLS: ('TRIPLE LETTER SCORE', '#31a2b3', 'white'),
+        SquareType.DWS: ('DOUBLE WORD SCORE', '#ffbdaf', 'black'),
+        SquareType.TWS: ('TRIPLE WORD SCORE', '#ff6154', 'white')
+    }
+
+    def __on_press(self, event):
+        row = int(self.board.canvasy(event.y) // 50)
+        col = int(self.board.canvasx(event.x) // 50)
+        if row in self.temp_tiles and col in self.temp_tiles[row]:
+            self.__picked_up_tile = self.temp_tiles[row][col][0]
+
+    def __on_release(self, event):
+        if self.__picked_up_tile and self.__conn.game.player_turn:
+            x = self.board.winfo_rootx() + event.x
+            y = self.board.winfo_rooty() + event.y
+            self.__on_tile_dropped(self.__picked_up_tile, x, y, True)
+            self.__picked_up_tile = None
+
+    def __on_right_release(self, event):
+        self.__on_press(event)
+        event.x = -1
+        event.y = -1
+        self.__on_release(event)
+
+    def redraw(self):
+        self.temp_tiles = {}
+        self.board.delete(tk.ALL)
+        for row, squares in enumerate(self.__conn.game.board.squares):
+            for col, square in enumerate(squares):
+                if square.tile:
+                    self.draw_tile(row, col, square.tile)
+                else:
+                    text, bg_color, text_color = BoardFrame.__lookup[square.type]
+                    self.board.create_rectangle(col * 50, row * 50, col * 50 + 50, row * 50 + 50,
+                                                fill=bg_color, width=2, outline='#f0f0f0')
+                    if row == 7 and col == 7:
+                        self.board.create_text(col * 50 + 25, row * 50 + 25,
+                                               text='★', font=('Helvetica', 30), fill=text_color)
+                    elif text:
+                        for i, string in enumerate(text.split(sep=' ')):
+                            self.board.create_text(col * 50 + 25, row * 50 + 13 + i * 12,
+                                                   text=string, font=('Helvetica', 6, 'bold'), fill=text_color)
+
+    def draw_tile(self, row: int, col: int, tile: 'Tile', temp: bool = False):
+        items: List[int] = [self.board.create_rectangle(col * 50, row * 50, col * 50 + 50, row * 50 + 50,
+                                                        fill='#f8f3e2', width=2, outline='black')]
+        if tile.letter:
+            items.append(self.board.create_text(col * 50 + 21, row * 50 + 23, text=tile.letter, font=('Helvetica', 22)))
+            items.append(self.board.create_text(col * 50 + 34, row * 50 + 35, text=tile.points,
+                                                anchor=tk.W, font=('Helvetica', 8, 'bold')))
+        if temp:
+            if row not in self.temp_tiles:
+                self.temp_tiles[row] = {}
+            self.temp_tiles[row][col] = (tile, items)
+
+    def delete_tile(self, tile: 'Tile'):
+        for row, tiles in self.temp_tiles.items():
+            for col, (tile_, items) in tiles.items():
+                if tile_ == tile:
+                    for item in items:
+                        self.board.delete(item)
+                    del self.temp_tiles[row][col]
+                    if not self.temp_tiles[row]:
+                        del self.temp_tiles[row]
+                    return
+
+
+class TilesCanvas(tk.Canvas):
+    def __init__(self, parent, conn: 'Connection', on_tile_dropped: Callable[['Tile', int, int, bool], Any]):
+        super().__init__(parent, width=350, height=50, scrollregion=(0, 0, 350, 50))
+
+        self.__conn = conn
+        self.__on_tile_dropped = on_tile_dropped
+
+        self.__tiles: List['Tile'] = []
+        self.__picked_up_tile: 'Tile' = None
+        self.bind('<Button-1>', self.__on_press)
+        self.bind('<ButtonRelease-1>', self.__on_release)
+
+    def __on_press(self, event):
+        self.__picked_up_tile = self.__tiles[event.x // 50]
+
+    def __on_release(self, event):
+        if self.__picked_up_tile and self.__conn.game.player_turn:
+            x = self.winfo_rootx() + event.x
+            y = self.winfo_rooty() + event.y
+            self.__on_tile_dropped(self.__picked_up_tile, x, y, False)
+            self.__picked_up_tile = None
+
+    def redraw(self):
+        self.__tiles = []
+        self.delete(tk.ALL)
+        for tile in self.__conn.game.player_client.player.tiles:
+            self.draw_tile(tile)
+
+    def draw_tile(self, tile: 'Tile'):
+        i = len(self.__tiles)
+        self.create_rectangle(i * 50, 0, i * 50 + 50, 50, fill='#f8f3e2', width=2, outline='black')
+        if tile.letter:
+            self.create_text(i * 50 + 21, 23, text=tile.letter, font=('Helvetica', 22))
+            self.create_text(i * 50 + 34, 35, text=tile.points, anchor=tk.W, font=('Helvetica', 8, 'bold'))
+        self.__tiles.append(tile)
+
+    def delete_tile(self, tile: 'Tile'):
+        for i, tile_ in enumerate(self.__tiles):
+            if tile == tile_:
+                del self.__tiles[i]
+                tiles = self.__tiles
+                self.__tiles = []
+                self.delete(tk.ALL)
+                for tile in tiles:
+                    self.draw_tile(tile)
+                break
+
+
+class ScrabbleFrame(tk.Frame):
+    def __init__(self, parent, conn: 'Connection'):
+        super().__init__(parent)
+
+        self.__conn = conn
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+
+        self.__board = BoardFrame(self, conn, self.__on_tile_dropped)
+        self.__board.grid(row=0, column=0, sticky=tk.NSEW)
+
+        self.__tiles = TilesCanvas(self, conn, self.__on_tile_dropped)
+        self.__tiles.grid(row=1, column=0, sticky=tk.NS)
+
+    def update(self):
+        self.__board.redraw()
+        self.__tiles.redraw()
+
+    def __on_tile_dropped(self, tile: 'Tile', x: int, y: int, from_board: bool):
+        if self.__board.board == self.winfo_containing(x, y):
+            x = self.__board.board.canvasx(x - self.__board.board.winfo_rootx())
+            y = self.__board.board.canvasy(y - self.__board.board.winfo_rooty())
+            row = int(y // 50)
+            col = int(x // 50)
+            square = self.__conn.game.board.squares[row][col]
+            temp_tile = None
+            if row in self.__board.temp_tiles and col in self.__board.temp_tiles[row]:
+                temp_tile = self.__board.temp_tiles[row][col]
+            if not square.tile and not temp_tile:
+                canceled = False
+                if from_board:
+                    self.__board.delete_tile(tile)
+                else:
+                    while not tile.letter and not canceled:
+                        letter = simpledialog.askstring('Input', 'Enter a letter for the blank tile')
+                        if letter is None:
+                            canceled = True
+                        else:
+                            letter = letter.upper()
+                            if len(letter) != 1 or ord(letter) not in range(ord('A'), ord('Z') + 1):
+                                tk.messagebox.showwarning('Warning', 'Input must be one letter from the English alphabet!')
+                            else:
+                                tile.letter = letter
+                    if not canceled:
+                        self.__tiles.delete_tile(tile)
+                if not canceled:
+                    self.__board.draw_tile(row, col, tile, True)
+        elif from_board:
+            self.__board.delete_tile(tile)
+            if tile.points == 0:
+                tile.letter = None
+            self.__tiles.draw_tile(tile)
 
 
 class GameFrame(tk.PanedWindow):
     def __init__(self, master: tk.Tk, name: str, ip: str, port: int):
         super().__init__(master, orient=tk.HORIZONTAL, sashwidth=6)
 
-        conn = Connection(self.__on_update)
+        self.__conn = Connection(self.__on_update)
 
-        self.__lobby_frame = LobbyFrame(self, conn)
-        self.add(self.__lobby_frame, width=250, stretch='always')
+        self.__active_frame = LobbyFrame(self, self.__conn)
+        self.add(self.__active_frame, width=250, stretch='always')
 
-        self.__chat_frame = ChatFrame(self, conn)
-        self.add(self.__chat_frame, stretch='never')
+        self.__chat_frame = ChatFrame(self, self.__conn)
+        self.add(self.__chat_frame)
 
-        conn.start(ip, port, name)
+        self.__conn.start(ip, port, name)
 
     def __on_update(self, src_type: Type[proto.ServerMessage], text: Optional[str]):
         if text:
             self.__chat_frame.add_text(text)
+
         if src_type == proto.Shutdown:
             self.master.set_frame(MainMenu(self.master))
         elif src_type == proto.ActionRejected:
             tk.messagebox.showwarning('Warning', text)
-        elif src_type in _update_msgs:
-            self.__lobby_frame.update()
+        elif src_type == proto.StartTurn:
+            if isinstance(self.__active_frame, LobbyFrame):
+                self.__change_active_frame(ScrabbleFrame(self, self.__conn))
+            if self.__conn.game.player_turn:
+                self.master.focus_force()
+        elif src_type == proto.EndGame:
+            self.__change_active_frame(LobbyFrame(self, self.__conn))
+
+        if src_type in _update_msgs:
+            self.__active_frame.update()
+
+    def __change_active_frame(self, frame: tk.Frame):
+        self.__active_frame.destroy()
+        self.__active_frame = frame
+        self.add(self.__active_frame, stretch='always', before=self.__chat_frame)
+        self.update_idletasks()
 
 
-_update_msgs = {proto.JoinOk, proto.PlayerJoined, proto.PlayerReady}
+_update_msgs = {proto.JoinOk, proto.PlayerJoined, proto.PlayerReady, proto.StartTurn}

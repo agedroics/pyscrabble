@@ -1,3 +1,4 @@
+import random
 from abc import ABC
 from typing import Dict, Type, Optional
 
@@ -20,10 +21,11 @@ def _start_game(game: 'Game'):
     game.load_tiles()
     game.lobby = False
     for client in game.clients:
+        client.ready = False
         player = client.player = Player()
         player.tiles = game.free_tiles[:7]
         game.free_tiles = game.free_tiles[7:]
-    game.turn_player_id = game.clients[0].player_id
+    game.turn_player_id = game.clients[random.randint(0, len(game.clients) - 1)].player_id
     tiles_left = len(game.free_tiles)
     for client in game.clients:
         start_turn = proto.StartTurn(game.turn_player_id, 0, tiles_left, client.player.tiles)
@@ -54,7 +56,8 @@ class LeaveHandler(Handler):
                 _start_game(game)
         elif len(game.clients) < 2:
             game.lobby = True
-            end_game = proto.EndGame([proto.EndGamePlayer(client.player_id, client.player.score) for client in game.clients])
+            end_game = proto.EndGame([proto.EndGamePlayer(client.player_id, client.player.score)
+                                      for client in game.clients])
             game.send_to_all(end_game)
         elif game.turn_player_id == client.player_id:
             game.send_to_all(proto.EndTurn(client.player_id, 0, []))

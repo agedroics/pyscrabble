@@ -86,8 +86,9 @@ class EndGameHandler(Handler):
     @classmethod
     def _handle(cls, msg: 'proto.EndGame', game: 'Game') -> str:
         game.lobby = True
-        msg.players.sort(lambda player: player.score, True)
-        return '\n'.join(f'{game.clients[player.player_id].name}: {player.score}' for player in msg.players)
+        msg.players.sort(key=lambda player: player.score, reverse=True)
+        return 'Game over' + ''.join(f'\n{game.clients[player.player_id].name} finished with {player.score} points'
+                                     for player in msg.players)
 
 
 class ShutdownHandler(Handler):
