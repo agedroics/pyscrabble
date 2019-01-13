@@ -9,42 +9,41 @@ class Client:
         self.name = name
         self.player: Player = None
         self.ready = False
-        self.worker = StreamWorker(stream, queue_in)
+        self.worker = StreamWorker(stream, queue_in, proto.Leave, self)
 
 
 class Server:
     def __init__(self):
         self.__socket = None
-        self.__game = Game()
+        self.game = Game()
 
     def __handle_connection(self, stream: 'Stream'):
         msg = stream.get_msg()
         if isinstance(msg, proto.Join):
-            self.__game.clients_lock.acquire()
-            if len(self.__game.clients) == 4:
-                self.__game.clients_lock.release()
+            self.game.clients_lock.acquire()
+            if len(self.game.clients) == 4:
+                self.game.clients_lock.release()
                 stream.send_msg(proto.ActionRejected('Server is full'))
                 stream.close()
-            elif not self.__game.lobby:
-                self.__game.clients_lock.release()
+            elif not self.game.lobby:
+                self.game.clients_lock.release()
                 stream.send_msg(proto.ActionRejected('Game in progress'))
                 stream.close()
             else:
-                free_id = self.__game.find_free_player_id()
-                new_client = Client(free_id, msg.name, stream, self.__game.queue_in)
-                self.__game.clients.append(new_client)
+                free_id = self.game.find_free_player_id()
+                new_client = Client(free_id, msg.name, stream, self.game.queue_in)
+                self.game.clients.append(new_client)
 
-                other_clients = []
+                player_infos = []
                 player_joined = proto.PlayerJoined(free_id, new_client.name)
-                for client in self.__game.clients:
-                    if client.player_id != free_id:
-                        other_clients.append(proto.PlayerInfo(client.player_id, client.ready, client.name))
-                        client.worker.queue_out.put(player_joined)
-                new_client.worker.queue_out.put(proto.JoinOk(free_id, other_clients))
-                self.__game.clients_lock.release()
+                for client in self.game.clients:
+                    player_infos.append(proto.PlayerInfo(client.player_id, client.ready, client.name))
+                    client.worker.queue_out.put(player_joined)
+                new_client.worker.queue_out.put(proto.JoinOk(free_id, player_infos))
+                self.game.clients_lock.release()
 
-                Thread(target=new_client.worker.listen_incoming, args=(new_client,), daemon=True).start()
-                new_client.worker.listen_outgoing(new_client)
+                Thread(target=new_client.worker.listen_incoming, daemon=True).start()
+                new_client.worker.listen_outgoing()
         else:
             stream.close()
 
@@ -59,7 +58,7 @@ class Server:
             self.__socket.bind((ip, port))
             self.__socket.listen(1)
             Thread(target=self.__listen_connections, daemon=True).start()
-            Thread(target=self.__game.process_incoming_requests, daemon=True).start()
+            Thread(target=self.game.process_incoming_requests, daemon=True).start()
 
     def stop(self):
         if self.__socket:

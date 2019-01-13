@@ -1,9 +1,9 @@
 from enum import Enum
-from typing import List
+from typing import List, Optional
 
 
 class Tile:
-    def __init__(self, tile_id: int, points: int, letter: str):
+    def __init__(self, tile_id: Optional[int], points: int, letter: str):
         self.id = tile_id
         self.points = points
         self.letter = letter
@@ -46,5 +46,6 @@ class Board:
     def __init__(self):
         self.__squares = [[Square(t) for t in row] for row in Board.__layout]
 
-    def __getitem__(self, item):
-        return self.__squares[item]
+    def __getitem__(self, i: int) -> 'Square':
+        row = self.__squares[i // len(self.__squares)]
+        return row[i % len(row)]

@@ -1,4 +1,4 @@
-from pyscrabble.gui import MainWindow
+from pyscrabble.common.gui import MainWindow
 
 
 def main():

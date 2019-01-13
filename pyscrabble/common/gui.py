@@ -2,10 +2,14 @@ import sys
 import tkinter as tk
 import tkinter.messagebox
 from abc import ABC, abstractmethod
-from queue import Queue
+from typing import Optional
 
 import pyscrabble.common.protocol as proto
+from pyscrabble.client.connection import Connection
 from pyscrabble.server.server import Server
+
+server: 'Server' = None
+connection: 'Connection' = None
 
 
 class MainWindow(tk.Tk):
@@ -18,7 +22,7 @@ class MainWindow(tk.Tk):
         self.set_frame(MainMenu(self))
 
     def set_frame(self, frame):
-        if self.__frame is not None:
+        if self.__frame:
             self.__frame.destroy()
         self.__frame = frame
         self.__frame.pack(fill='both', padx=14, pady=10)
@@ -126,8 +130,15 @@ class HostGame(StartGame):
         self.__timer_entry.grid(row=2, column=1, padx=(0, 4), pady=(0, 6), sticky='W')
 
     def _button_action(self, name: str, ip: str, port: int):
-        server = Server()
-        server.start(ip, port)
+        global server
+        if not server:
+            try:
+                server = Server()
+                server.start(ip, port)
+                self.master.set_frame(Lobby(self.master, name, ip, port))
+            except Exception as e:
+                print(e)
+                server = None
 
 
 class JoinGame(StartGame):
@@ -138,28 +149,59 @@ class JoinGame(StartGame):
         container.config(text='Join Game')
 
     def _button_action(self, name: str, ip: str, port: int):
-        pass
+        self.master.set_frame(Lobby(self.master, name, ip, port))
 
 
 class ChatFrame(tk.Frame):
-    def __init__(self, parent, queue: Queue):
+    def __init__(self, parent):
         super().__init__(parent)
 
-        self.__queue = queue
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
 
-        scrollbar = tk.Scrollbar(self)
-        self.__text = tk.Text(scrollbar)
-        self.__text.pack()
-        scrollbar.pack()
+        self.__txt = tk.Text(self, state=tk.DISABLED, wrap=tk.WORD)
+        self.__txt.grid(row=0, column=0, columnspan=2, sticky='WNES')
 
-        tk.Button(self, text='Send', command=self.__on_send).pack()
+        scrollbar = tk.Scrollbar(self, orient='vertical', command=self.__txt.yview)
+        scrollbar.grid(row=0, column=2, sticky='NS')
 
-    def __on_send(self):
-        self.__queue.put(proto.Chat(self.__text.get()))
+        self.__txt['yscrollcommand'] = scrollbar.set
+
+        self.__text_entry = tk.Entry(self)
+        self.__text_entry.bind('<Return>', self.__on_send)
+        self.__text_entry.grid(row=1, column=0, sticky='EW')
+
+        tk.Button(self, text='Send', command=self.__on_send)\
+            .grid(row=1, column=1, columnspan=2, sticky='EW')
+
+    def __on_send(self, *_):
+        global connection
+        connection.worker.queue_out.put(proto.Chat(self.__text_entry.get()))
+        self.__text_entry.delete(0, tk.END)
+
+    def add_text(self, text: Optional[str]):
+        if text:
+            self.__txt.config(state=tk.NORMAL)
+            self.__txt.insert(tk.END, f'{text}\n')
+            self.__txt.config(state=tk.DISABLED)
+            self.__txt.yview_moveto(1)
 
 
 class Lobby(tk.Frame):
-    def __init__(self, master: tk.Tk):
+    def __init__(self, master: tk.Tk, name: str, ip: str, port: int):
         super().__init__(master)
 
-        self.__chat_text
+        chat_frame = ChatFrame(self)
+        chat_frame.pack()
+
+        global connection
+        if not connection:
+            connection = Connection(chat_frame.add_text)
+            try:
+                connection.start(ip, port, name)
+            except Exception:
+                global server
+                if server:
+                    server.stop()
+                    server = None
+                master.set_frame(MainMenu(master))

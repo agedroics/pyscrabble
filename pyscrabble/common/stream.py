@@ -19,7 +19,6 @@ class Stream:
                 n -= bytes_to_take
             else:
                 self.__buffer = self.__socket.recv(1024)
-                print(self.__buffer)
                 if not self.__buffer:
                     self.__socket.close()
                     break
@@ -42,35 +41,42 @@ class Stream:
 
 
 class StreamWorker:
-    def __init__(self, stream: 'Stream', queue_in: Queue):
+    def __init__(self, stream: 'Stream', queue_in: Queue, end_msg: Type['proto.Message'], *extra_info):
         self.__stream = stream
         self.__queue_in = queue_in
         self.queue_out = Queue()
+        self.__end_msg = end_msg
+        self.__extra_info = extra_info
 
-    def listen_incoming(self, *extra_info):
+    def listen_incoming(self):
         try:
             while True:
                 msg = self.__stream.get_msg()
                 if msg:
-                    self.__queue_in.put((msg, *extra_info))
+                    self.__queue_in.put((msg, *self.__extra_info))
+                    if isinstance(msg, proto.Leave) or isinstance(msg, proto.Shutdown):
+                        break
                 else:
-                    self.__queue_in.put((proto.Leave(), *extra_info))
+                    self.__queue_in.put((self.__end_msg(), *self.__extra_info))
                     break
         except socket.error:
-            self.__queue_in.put((proto.Leave(), *extra_info))
+            self.__queue_in.put((self.__end_msg(), *self.__extra_info))
         finally:
+            self.queue_out.put(None)
             self.__stream.close()
 
-    def listen_outgoing(self, *extra_info):
+    def listen_outgoing(self):
         try:
             while True:
                 msg = self.queue_out.get()
                 if msg:
                     self.__stream.send_msg(msg)
+                    if isinstance(msg, proto.Leave) or isinstance(msg, proto.Shutdown):
+                        break
                 else:
                     break
         except socket.error:
-            self.__queue_in.put((proto.Leave(), *extra_info))
+            self.__queue_in.put((self.__end_msg(), *self.__extra_info))
         finally:
             self.__stream.close()
 

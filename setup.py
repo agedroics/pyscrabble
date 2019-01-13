@@ -16,7 +16,12 @@ setup(
     install_requires=[
         'bidict>=0.17,<1'
     ],
-    packages=['pyscrabble'],
+    packages=[
+        'pyscrabble',
+        'pyscrabble.client',
+        'pyscrabble.common',
+        'pyscrabble.server'
+    ],
     entry_points={
         'gui_scripts': [
             'pyscrabble = pyscrabble.__main__:main'

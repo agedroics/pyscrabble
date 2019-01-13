@@ -324,7 +324,7 @@ class PlayerChat(ServerMessage):
     @_serializer
     def serialize(self) -> bytes:
         b = self.text.encode('utf-8')
-        return utils.int_to_byte(self.player_id) + utils.int_to_byte(len(b)) + b
+        return utils.int_to_byte(self.player_id) + len(b).to_bytes(2, byteorder='big') + b
 
     @classmethod
     def _deserialize(cls, stream: 'Stream') -> 'PlayerChat':
@@ -338,7 +338,7 @@ class Notification(ServerMessage):
     @_serializer
     def serialize(self) -> bytes:
         b = self.text.encode('utf-8')
-        return utils.int_to_byte(len(b)) + b
+        return len(b).to_bytes(2, byteorder='big') + b
 
     @classmethod
     def _deserialize(cls, stream: 'Stream') -> 'Notification':

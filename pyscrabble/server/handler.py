@@ -7,18 +7,11 @@ class Handler(ABC):
     def handle(msg: 'proto.ClientMessage', client: 'Client', game: 'Game'):
         handler = Handler._mappings.get(msg.__class__)
         if handler:
-            game.clients_lock.acquire()
-            handler._handle(msg, client, game)
-            game.clients_lock.release()
+            with game.clients_lock:
+                handler._handle(msg, client, game)
 
     @classmethod
     def _handle(cls, msg: 'proto.ClientMessage', client: 'Client', game: 'Game'):
-        pass
-
-
-class JoinHandler(Handler):
-    @classmethod
-    def _handle(cls, msg: 'proto.Join', client: 'Client', game: 'Game'):
         pass
 
 
@@ -49,18 +42,11 @@ class ReadyHandler(Handler):
                 game.send_to_all(proto.PlayerReady(client.player_id))
 
 
-class KeepAliveHandler(Handler):
-    @classmethod
-    def _handle(cls, msg: 'proto.KeepAlive', client: 'Client', game: 'Game'):
-        pass
-
-
 class LeaveHandler(Handler):
     @classmethod
     def _handle(cls, msg: 'proto.Leave', client: 'Client', game: 'Game'):
         i = game.clients.index(client)
         del game.clients[i]
-        client.worker.queue_out.put(None)
         game.send_to_all(proto.PlayerLeft(client.player_id))
         if game.lobby:
             all_ready = len(game.clients) > 1 and all(client.ready for client in game.clients)
@@ -104,9 +90,7 @@ from pyscrabble.server.server import Client
 import pyscrabble.common.protocol as proto
 
 Handler._mappings: Dict[Type['proto.ClientMessage'], Type['Handler']] = {
-    proto.Join: JoinHandler,
     proto.Ready: ReadyHandler,
-    proto.KeepAlive: KeepAliveHandler,
     proto.Leave: LeaveHandler,
     proto.TileExchange: TileExchangeHandler,
     proto.PlaceTiles: PlaceTilesHandler,
