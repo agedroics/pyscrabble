@@ -4,12 +4,12 @@ from typing import Dict, Type, Optional
 
 class Handler(ABC):
     @staticmethod
-    def handle(msg: 'proto.ServerMessage', game: 'Game'):
-        handler = Handler._mappings.get(msg.__class__)
+    def handle(msg: Optional['proto.ServerMessage'], game: 'Game'):
+        handler = Handler._mappings.get(msg.__class__) if msg else ShutdownHandler
         if handler:
             with game.lock:
                 text = handler._handle(msg, game)
-            game.on_update(text)
+            game.on_update(msg.__class__ if msg else proto.Shutdown, text)
 
     @classmethod
     def _handle(cls, msg: 'proto.ServerMessage', game: 'Game') -> Optional[str]:
@@ -61,7 +61,7 @@ class StartTurnHandler(Handler):
         if game.lobby:
             game.lobby = False
             game.board = Board()
-            for _, client in game.clients:
+            for client in game.clients.values():
                 client.player = Player()
         client = game.clients[msg.player_id]
         game.player_turn = client == game.player_client
@@ -93,7 +93,7 @@ class EndGameHandler(Handler):
 class ShutdownHandler(Handler):
     @classmethod
     def _handle(cls, msg: 'proto.Shutdown', game: 'Game') -> None:
-        ...
+        pass
 
 
 class PlayerChatHandler(Handler):

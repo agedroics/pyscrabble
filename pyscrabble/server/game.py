@@ -19,21 +19,26 @@ class Game:
         free_ids = (i for i in range(256) if i not in taken_ids)
         return next(free_ids)
 
-    def send_to_all(self, msg: 'ServerMessage', exception_id: int = None):
+    def send_to_all(self, msg: 'proto.ServerMessage', exception_id: int = None):
         for client in self.clients:
             if exception_id != client.player_id:
                 client.worker.queue_out.put(msg)
 
     def load_tiles(self):
-        self.free_tiles = random.shuffle([Tile(i, i, chr(i)) for i in range(65, 91)])
+        self.free_tiles = [Tile(i, i, chr(i)) for i in range(65, 91)]
+        random.shuffle(self.free_tiles)
 
     def process_incoming_requests(self):
         while True:
             msg, client = self.queue_in.get()
-            Handler.handle(msg, client, self)
+            if client:
+                Handler.handle(msg, client, self)
+            else:
+                break
 
 
 from pyscrabble.server.handler import Handler
 from pyscrabble.common.model import Board, Tile
-from pyscrabble.common.protocol import ServerMessage
 from pyscrabble.server.server import Client
+
+import pyscrabble.common.protocol as proto

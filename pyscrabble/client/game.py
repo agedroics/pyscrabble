@@ -1,10 +1,10 @@
 from queue import Queue
 from threading import Lock
-from typing import Any, Dict, Callable
+from typing import Any, Dict, Callable, Type, Optional
 
 
 class Game:
-    def __init__(self, on_update: Callable[[str], Any]):
+    def __init__(self, on_update: Callable[[Type['proto.ServerMessage'], Optional[str]], Any]):
         self.board: 'Board' = None
         self.tiles_left: int = None
         self.clients: Dict[int, 'Client'] = {}
@@ -19,8 +19,12 @@ class Game:
         while True:
             msg, = self.queue_in.get()
             Handler.handle(msg, self)
+            if not msg or isinstance(msg, proto.Shutdown):
+                break
 
 
 from pyscrabble.client.connection import Client
 from pyscrabble.client.handler import Handler
 from pyscrabble.common.model import Board
+
+import pyscrabble.common.protocol as proto

@@ -1,11 +1,11 @@
 from abc import ABC
-from typing import Dict, Type
+from typing import Dict, Type, Optional
 
 
 class Handler(ABC):
     @staticmethod
-    def handle(msg: 'proto.ClientMessage', client: 'Client', game: 'Game'):
-        handler = Handler._mappings.get(msg.__class__)
+    def handle(msg: Optional['proto.ClientMessage'], client: 'Client', game: 'Game'):
+        handler = Handler._mappings.get(msg.__class__) if msg else LeaveHandler
         if handler:
             with game.clients_lock:
                 handler._handle(msg, client, game)

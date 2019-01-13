@@ -37,15 +37,18 @@ class Stream:
         self.__socket.sendall(msg.serialize())
 
     def close(self):
-        self.__socket.close()
+        try:
+            self.__socket.shutdown(socket.SHUT_RDWR)
+            self.__socket.close()
+        except IOError:
+            pass
 
 
 class StreamWorker:
-    def __init__(self, stream: 'Stream', queue_in: Queue, end_msg: Type['proto.Message'], *extra_info):
+    def __init__(self, stream: 'Stream', queue_in: Queue, *extra_info):
         self.__stream = stream
         self.__queue_in = queue_in
         self.queue_out = Queue()
-        self.__end_msg = end_msg
         self.__extra_info = extra_info
 
     def listen_incoming(self):
@@ -57,13 +60,13 @@ class StreamWorker:
                     if isinstance(msg, proto.Leave) or isinstance(msg, proto.Shutdown):
                         break
                 else:
-                    self.__queue_in.put((self.__end_msg(), *self.__extra_info))
+                    self.__queue_in.put((None, *self.__extra_info))
                     break
         except socket.error:
-            self.__queue_in.put((self.__end_msg(), *self.__extra_info))
+            self.__queue_in.put((None, *self.__extra_info))
         finally:
-            self.queue_out.put(None)
             self.__stream.close()
+            self.queue_out.put(None)
 
     def listen_outgoing(self):
         try:
@@ -76,7 +79,7 @@ class StreamWorker:
                 else:
                     break
         except socket.error:
-            self.__queue_in.put((self.__end_msg(), *self.__extra_info))
+            self.__queue_in.put((None, *self.__extra_info))
         finally:
             self.__stream.close()
 

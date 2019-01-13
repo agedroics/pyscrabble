@@ -9,12 +9,12 @@ class Client:
         self.name = name
         self.player: Player = None
         self.ready = False
-        self.worker = StreamWorker(stream, queue_in, proto.Leave, self)
+        self.worker = StreamWorker(stream, queue_in, self)
 
 
 class Server:
     def __init__(self):
-        self.__socket = None
+        self.__socket: socket = None
         self.game = Game()
 
     def __handle_connection(self, stream: 'Stream'):
@@ -38,7 +38,8 @@ class Server:
                 player_joined = proto.PlayerJoined(free_id, new_client.name)
                 for client in self.game.clients:
                     player_infos.append(proto.PlayerInfo(client.player_id, client.ready, client.name))
-                    client.worker.queue_out.put(player_joined)
+                    if client != new_client:
+                        client.worker.queue_out.put(player_joined)
                 new_client.worker.queue_out.put(proto.JoinOk(free_id, player_infos))
                 self.game.clients_lock.release()
 
@@ -48,9 +49,12 @@ class Server:
             stream.close()
 
     def __listen_connections(self):
-        while True:
-            s, _ = self.__socket.accept()
-            Thread(target=self.__handle_connection, args=(Stream(s, proto.ClientMessage),), daemon=True).start()
+        try:
+            while True:
+                s, _ = self.__socket.accept()
+                Thread(target=self.__handle_connection, args=(Stream(s, proto.ClientMessage),), daemon=True).start()
+        except IOError:
+            pass
 
     def start(self, ip: str, port: int):
         if self.__socket is None:
@@ -61,8 +65,9 @@ class Server:
             Thread(target=self.game.process_incoming_requests, daemon=True).start()
 
     def stop(self):
-        if self.__socket:
-            self.__socket.close()
+        self.game.send_to_all(proto.Shutdown())
+        self.game.queue_in.put((None, None))
+        self.__socket.close()
 
 
 from pyscrabble.common.model import Player
