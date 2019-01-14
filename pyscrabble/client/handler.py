@@ -5,11 +5,13 @@ from typing import Dict, Type, Optional
 class Handler(ABC):
     @staticmethod
     def handle(msg: Optional['proto.ServerMessage'], game: 'Game'):
-        handler = Handler._mappings.get(msg.__class__) if msg else ShutdownHandler
+        if not msg:
+            msg = proto.Shutdown()
+        handler = Handler._mappings.get(msg.__class__)
         if handler:
             with game.lock:
                 text = handler._handle(msg, game)
-            game.on_update(msg.__class__ if msg else proto.Shutdown, text)
+            game.on_update(msg, text)
 
     @classmethod
     def _handle(cls, msg: 'proto.ServerMessage', game: 'Game') -> Optional[str]:
@@ -28,8 +30,8 @@ class JoinOkHandler(Handler):
 
 class ActionRejectedHandler(Handler):
     @classmethod
-    def _handle(cls, msg: 'proto.ActionRejected', game: 'Game') -> str:
-        return msg.reason
+    def _handle(cls, msg: 'proto.ActionRejected', game: 'Game') -> None:
+        pass
 
 
 class PlayerJoinedHandler(Handler):
@@ -67,19 +69,20 @@ class StartTurnHandler(Handler):
         game.player_turn = client == game.player_client
         game.tiles_left = msg.tiles_left
         game.player_client.player.tiles = msg.tiles
-        return f'{client.name}\'s turn'
+        return ('Your' if game.player_turn else f'{client.name}\'s') + ' turn'
 
 
 class EndTurnHandler(Handler):
     @classmethod
-    def _handle(cls, msg: 'proto.EndTurn', game: 'Game') -> str:
-        client = game.clients[msg.player_id]
-        score_gained = msg.score - client.player.score
-        client.player.score = msg.score
-        for placed_tile in msg.placed_tiles:
-            tile = Tile(None, placed_tile.points, placed_tile.letter)
-            game.board[placed_tile.position].tile = tile
-        return f'{client.name} earned {score_gained} points'
+    def _handle(cls, msg: 'proto.EndTurn', game: 'Game') -> Optional[str]:
+        client = game.clients.get(msg.player_id)
+        if client:
+            score_gained = msg.score - client.player.score
+            client.player.score = msg.score
+            for placed_tile in msg.placed_tiles:
+                tile = Tile(None, placed_tile.points, placed_tile.letter)
+                game.board[placed_tile.position].tile = tile
+            return f'{client.name} earned {score_gained} points'
 
 
 class EndGameHandler(Handler):

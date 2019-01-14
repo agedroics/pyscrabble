@@ -3,7 +3,7 @@ import tkinter as tk
 import tkinter.messagebox
 from abc import ABC, abstractmethod
 from tkinter import simpledialog
-from typing import Tuple, Optional, Type, List, Callable, Any, Dict
+from typing import Tuple, Optional, List, Callable, Any, Dict
 
 import pyscrabble.common.protocol as proto
 from pyscrabble.client.connection import Connection
@@ -159,6 +159,15 @@ class JoinGame(StartGame):
             tk.messagebox.showerror('Error', e)
 
 
+class AutoScrollbar(tk.Scrollbar):
+    def set(self, lo, hi):
+        if float(lo) <= 0.0 and float(hi) >= 1.0:
+            self.grid_remove()
+        else:
+            self.grid()
+        tk.Scrollbar.set(self, lo, hi)
+
+
 class ChatFrame(tk.Frame):
     def __init__(self, parent, conn: 'Connection'):
         super().__init__(parent)
@@ -170,7 +179,7 @@ class ChatFrame(tk.Frame):
         self.__txt = tk.Text(self, state=tk.DISABLED, wrap=tk.WORD, width=40)
         self.__txt.grid(row=0, column=0, columnspan=2, pady=(0, 6), sticky=tk.NSEW)
 
-        scrollbar = tk.Scrollbar(self, orient=tk.VERTICAL, command=self.__txt.yview)
+        scrollbar = AutoScrollbar(self, orient=tk.VERTICAL, command=self.__txt.yview)
         scrollbar.grid(row=0, column=2, pady=(0, 6), sticky=tk.NS)
 
         self.__txt.configure(yscrollcommand=scrollbar.set)
@@ -197,7 +206,7 @@ class ChatFrame(tk.Frame):
 
 class LobbyFrame(tk.Frame):
     def __init__(self, parent, conn: 'Connection'):
-        super().__init__(parent, width=250)
+        super().__init__(parent)
 
         self.__conn = conn
         self.rowconfigure(0, weight=1)
@@ -205,13 +214,13 @@ class LobbyFrame(tk.Frame):
 
         self.__players_frame = tk.LabelFrame(self, text='Players', padx=4)
         self.__players_frame.columnconfigure(0, weight=1)
-        self.__players_frame.grid(row=0, column=0, columnspan=2, pady=(0, 6), sticky=tk.NSEW)
+        self.__players_frame.grid(row=0, column=0, columnspan=3, pady=(0, 6), sticky=tk.NSEW)
 
         tk.Button(self, text='Ready', command=self.__on_ready)\
-            .grid(row=1, column=0, ipadx=20, padx=(0, 6), sticky=tk.E)
+            .grid(row=1, column=1, ipadx=20, padx=(0, 6), sticky=tk.E)
 
         tk.Button(self, text='Back', command=self.__on_back)\
-            .grid(row=1, column=1, ipadx=20, sticky=tk.E)
+            .grid(row=1, column=2, ipadx=20, sticky=tk.E)
 
     def __on_ready(self):
         self.__conn.worker.queue_out.put(proto.Ready())
@@ -223,7 +232,7 @@ class LobbyFrame(tk.Frame):
             server.stop()
             server = None
 
-    def update(self):
+    def update_contents(self):
         for slave in self.__players_frame.grid_slaves():
             slave.destroy()
         for i, client in enumerate(self.__conn.game.clients.values()):
@@ -231,7 +240,6 @@ class LobbyFrame(tk.Frame):
                 .grid(row=i, column=0, pady=(2, 0), sticky=tk.W)
             tk.Label(self.__players_frame, text='READY' if client.ready else '')\
                 .grid(row=i, column=1, pady=(2, 0), sticky=tk.E)
-        self.update_idletasks()
 
 
 class BoardFrame(tk.Frame):
@@ -249,10 +257,10 @@ class BoardFrame(tk.Frame):
         self.board.bind('<ButtonRelease-1>', self.__on_release)
         self.board.bind('<ButtonRelease-3>', self.__on_right_release)
 
-        h_scrollbar = tk.Scrollbar(self, orient=tk.HORIZONTAL, command=self.board.xview)
+        h_scrollbar = AutoScrollbar(self, orient=tk.HORIZONTAL, command=self.board.xview)
         h_scrollbar.grid(row=1, column=0, sticky=tk.EW)
 
-        v_scrollbar = tk.Scrollbar(self, orient=tk.VERTICAL, command=self.board.yview)
+        v_scrollbar = AutoScrollbar(self, orient=tk.VERTICAL, command=self.board.yview)
         v_scrollbar.grid(row=0, column=1, sticky=tk.NS)
 
         self.board.configure(xscrollcommand=h_scrollbar.set, yscrollcommand=v_scrollbar.set)
@@ -269,17 +277,19 @@ class BoardFrame(tk.Frame):
     }
 
     def __on_press(self, event):
-        row = int(self.board.canvasy(event.y) // 50)
-        col = int(self.board.canvasx(event.x) // 50)
-        if row in self.temp_tiles and col in self.temp_tiles[row]:
-            self.__picked_up_tile = self.temp_tiles[row][col][0]
+        with self.__conn.game.lock:
+            row = int(self.board.canvasy(event.y) // 50)
+            col = int(self.board.canvasx(event.x) // 50)
+            if row in self.temp_tiles and col in self.temp_tiles[row]:
+                self.__picked_up_tile = self.temp_tiles[row][col][0]
 
     def __on_release(self, event):
-        if self.__picked_up_tile and self.__conn.game.player_turn:
-            x = self.board.winfo_rootx() + event.x
-            y = self.board.winfo_rooty() + event.y
-            self.__on_tile_dropped(self.__picked_up_tile, x, y, True)
-            self.__picked_up_tile = None
+        with self.__conn.game.lock:
+            if self.__picked_up_tile and self.__conn.game.player_turn:
+                x = self.board.winfo_rootx() + event.x
+                y = self.board.winfo_rooty() + event.y
+                self.__on_tile_dropped(self.__picked_up_tile, x, y, True)
+                self.__picked_up_tile = None
 
     def __on_right_release(self, event):
         self.__on_press(event)
@@ -289,6 +299,7 @@ class BoardFrame(tk.Frame):
 
     def redraw(self):
         self.temp_tiles = {}
+        self.__picked_up_tile = None
         self.board.delete(tk.ALL)
         for row, squares in enumerate(self.__conn.game.board.squares):
             for col, square in enumerate(squares):
@@ -307,12 +318,13 @@ class BoardFrame(tk.Frame):
                                                    text=string, font=('Helvetica', 6, 'bold'), fill=text_color)
 
     def draw_tile(self, row: int, col: int, tile: 'Tile', temp: bool = False):
-        items: List[int] = [self.board.create_rectangle(col * 50, row * 50, col * 50 + 50, row * 50 + 50,
-                                                        fill='#f8f3e2', width=2, outline='black')]
-        if tile.letter:
-            items.append(self.board.create_text(col * 50 + 21, row * 50 + 23, text=tile.letter, font=('Helvetica', 22)))
-            items.append(self.board.create_text(col * 50 + 34, row * 50 + 35, text=tile.points,
-                                                anchor=tk.W, font=('Helvetica', 8, 'bold')))
+        items = [
+            self.board.create_rectangle(col * 50, row * 50, col * 50 + 50, row * 50 + 50,
+                                        fill='#f8f3e2', width=2, outline='black'),
+            self.board.create_text(col * 50 + 21, row * 50 + 23, text=tile.letter, font=('Helvetica', 22)),
+            self.board.create_text(col * 50 + 33, row * 50 + 35, text=tile.points,
+                                   anchor=tk.W, font=('Helvetica', 8, 'bold'))
+        ]
         if temp:
             if row not in self.temp_tiles:
                 self.temp_tiles[row] = {}
@@ -332,7 +344,7 @@ class BoardFrame(tk.Frame):
 
 class TilesCanvas(tk.Canvas):
     def __init__(self, parent, conn: 'Connection', on_tile_dropped: Callable[['Tile', int, int, bool], Any]):
-        super().__init__(parent, width=350, height=50, scrollregion=(0, 0, 350, 50))
+        super().__init__(parent)
 
         self.__conn = conn
         self.__on_tile_dropped = on_tile_dropped
@@ -343,17 +355,20 @@ class TilesCanvas(tk.Canvas):
         self.bind('<ButtonRelease-1>', self.__on_release)
 
     def __on_press(self, event):
-        self.__picked_up_tile = self.__tiles[event.x // 50]
+        with self.__conn.game.lock:
+            self.__picked_up_tile = self.__tiles[event.x // 50]
 
     def __on_release(self, event):
-        if self.__picked_up_tile and self.__conn.game.player_turn:
-            x = self.winfo_rootx() + event.x
-            y = self.winfo_rooty() + event.y
-            self.__on_tile_dropped(self.__picked_up_tile, x, y, False)
-            self.__picked_up_tile = None
+        with self.__conn.game.lock:
+            if self.__picked_up_tile and self.__conn.game.player_turn:
+                x = self.winfo_rootx() + event.x
+                y = self.winfo_rooty() + event.y
+                self.__on_tile_dropped(self.__picked_up_tile, x, y, False)
+                self.__picked_up_tile = None
 
     def redraw(self):
         self.__tiles = []
+        self.__picked_up_tile = None
         self.delete(tk.ALL)
         for tile in self.__conn.game.player_client.player.tiles:
             self.draw_tile(tile)
@@ -363,8 +378,10 @@ class TilesCanvas(tk.Canvas):
         self.create_rectangle(i * 50, 0, i * 50 + 50, 50, fill='#f8f3e2', width=2, outline='black')
         if tile.letter:
             self.create_text(i * 50 + 21, 23, text=tile.letter, font=('Helvetica', 22))
-            self.create_text(i * 50 + 34, 35, text=tile.points, anchor=tk.W, font=('Helvetica', 8, 'bold'))
+            self.create_text(i * 50 + 33, 35, text=tile.points, anchor=tk.W, font=('Helvetica', 8, 'bold'))
         self.__tiles.append(tile)
+        width = 50 * len(self.__tiles)
+        self.configure(width=width, height=50, scrollregion=(0, 0, width, 50))
 
     def delete_tile(self, tile: 'Tile'):
         for i, tile_ in enumerate(self.__tiles):
@@ -387,12 +404,12 @@ class ScrabbleFrame(tk.Frame):
         self.columnconfigure(0, weight=1)
 
         self.__board = BoardFrame(self, conn, self.__on_tile_dropped)
-        self.__board.grid(row=0, column=0, sticky=tk.NSEW)
+        self.__board.grid(row=0, column=0, pady=(0, 6), sticky=tk.NSEW)
 
         self.__tiles = TilesCanvas(self, conn, self.__on_tile_dropped)
         self.__tiles.grid(row=1, column=0, sticky=tk.NS)
 
-    def update(self):
+    def update_contents(self):
         self.__board.redraw()
         self.__tiles.redraw()
 
@@ -436,40 +453,40 @@ class GameFrame(tk.PanedWindow):
     def __init__(self, master: tk.Tk, name: str, ip: str, port: int):
         super().__init__(master, orient=tk.HORIZONTAL, sashwidth=6)
 
-        self.__conn = Connection(self.__on_update)
+        self.__conn = Connection(lambda msg, text: self.after_idle(self.__on_update, msg, text))
 
         self.__active_frame = LobbyFrame(self, self.__conn)
-        self.add(self.__active_frame, width=250, stretch='always')
+        self.add(self.__active_frame, stretch='always')
 
         self.__chat_frame = ChatFrame(self, self.__conn)
         self.add(self.__chat_frame)
 
         self.__conn.start(ip, port, name)
 
-    def __on_update(self, src_type: Type[proto.ServerMessage], text: Optional[str]):
-        if text:
-            self.__chat_frame.add_text(text)
+    def __on_update(self, msg: 'proto.ServerMessage', text: Optional[str]):
+        with self.__conn.game.lock:
+            if text:
+                self.__chat_frame.add_text(text)
 
-        if src_type == proto.Shutdown:
-            self.master.set_frame(MainMenu(self.master))
-        elif src_type == proto.ActionRejected:
-            tk.messagebox.showwarning('Warning', text)
-        elif src_type == proto.StartTurn:
-            if isinstance(self.__active_frame, LobbyFrame):
-                self.__change_active_frame(ScrabbleFrame(self, self.__conn))
-            if self.__conn.game.player_turn:
-                self.master.focus_force()
-        elif src_type == proto.EndGame:
-            self.__change_active_frame(LobbyFrame(self, self.__conn))
+            if isinstance(msg, proto.Shutdown):
+                self.master.set_frame(MainMenu(self.master))
+            elif isinstance(msg, proto.ActionRejected):
+                tk.messagebox.showwarning('Warning', msg.reason)
+            elif isinstance(msg, proto.StartTurn):
+                if isinstance(self.__active_frame, LobbyFrame):
+                    self.__change_active_frame(ScrabbleFrame(self, self.__conn))
+                if self.__conn.game.player_turn:
+                    self.master.focus_force()
+            elif isinstance(msg, proto.EndGame):
+                self.__change_active_frame(LobbyFrame(self, self.__conn))
 
-        if src_type in _update_msgs:
-            self.__active_frame.update()
+            if msg.__class__ in _update_msgs:
+                self.__active_frame.update_contents()
 
     def __change_active_frame(self, frame: tk.Frame):
         self.__active_frame.destroy()
         self.__active_frame = frame
-        self.add(self.__active_frame, stretch='always', before=self.__chat_frame)
-        self.update_idletasks()
+        self.add(self.__active_frame, before=self.__chat_frame, stretch='always')
 
 
-_update_msgs = {proto.JoinOk, proto.PlayerJoined, proto.PlayerReady, proto.StartTurn}
+_update_msgs = {proto.JoinOk, proto.PlayerJoined, proto.PlayerReady, proto.StartTurn, proto.EndGame}

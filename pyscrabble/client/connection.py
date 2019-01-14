@@ -1,6 +1,6 @@
 from socket import create_connection
 from threading import Thread
-from typing import Any, Callable, Type, Optional
+from typing import Any, Callable, Optional
 
 
 class Client:
@@ -12,7 +12,7 @@ class Client:
 
 
 class Connection:
-    def __init__(self, on_update: Callable[[Type['proto.ServerMessage'], Optional[str]], Any]):
+    def __init__(self, on_update: Callable[['proto.ServerMessage', Optional[str]], Any]):
         self.__stream: 'Stream' = None
         self.worker: 'StreamWorker' = None
         self.game = Game(on_update)

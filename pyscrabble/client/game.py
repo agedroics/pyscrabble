@@ -1,10 +1,10 @@
 from queue import Queue
 from threading import Lock
-from typing import Any, Dict, Callable, Type, Optional
+from typing import Any, Dict, Callable, Optional
 
 
 class Game:
-    def __init__(self, on_update: Callable[[Type['proto.ServerMessage'], Optional[str]], Any]):
+    def __init__(self, on_update: Callable[['proto.ServerMessage', Optional[str]], Any]):
         self.board: 'Board' = None
         self.tiles_left: int = None
         self.clients: Dict[int, 'Client'] = {}
