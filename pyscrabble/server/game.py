@@ -1,7 +1,10 @@
+import gzip
 import random
 from queue import Queue
 from threading import Lock
-from typing import List, Tuple
+from typing import List, Tuple, Set
+
+from pkg_resources import resource_stream
 
 
 class Game:
@@ -81,3 +84,14 @@ Game._tiles: List[Tuple[str, int]] = [
     ('Z', 10)
 ]
 Game._tiles = [Tile(tile_id, points, letter) for tile_id, (letter, points) in enumerate(Game._tiles)]
+
+words: Set[str] = None
+
+
+def load_words():
+    global words
+    if not words:
+        with resource_stream(__name__, 'words') as stream:
+            with gzip.open(stream, mode='rt') as f:
+                words = set(line.strip() for line in f)
+        words.remove('')

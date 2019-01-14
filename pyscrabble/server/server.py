@@ -61,6 +61,7 @@ class Server:
             self.__socket = socket(AF_INET, SOCK_STREAM)
             self.__socket.bind((ip, port))
             self.__socket.listen(1)
+            load_words()
             Thread(target=self.__listen_connections, daemon=True).start()
             Thread(target=self.game.process_incoming_requests, daemon=True).start()
 
@@ -72,6 +73,6 @@ class Server:
 
 from pyscrabble.common.model import Player
 from pyscrabble.common.stream import Stream, StreamWorker
-from pyscrabble.server.game import Game
+from pyscrabble.server.game import Game, load_words
 
 import pyscrabble.common.protocol as proto
