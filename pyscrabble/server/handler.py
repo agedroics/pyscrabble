@@ -20,16 +20,26 @@ def _start_game(game: 'Game'):
     game.board = Board()
     game.load_tiles()
     game.lobby = False
+    game.turns_without_score = 0
     for client in game.clients:
         client.ready = False
         player = client.player = Player()
         player.tiles = game.free_tiles[:7]
         game.free_tiles = game.free_tiles[7:]
+    game.send_to_all(proto.Notification('Game started!'))
     game.turn_player_id = game.clients[random.randint(0, len(game.clients) - 1)].player_id
     tiles_left = len(game.free_tiles)
     for client in game.clients:
-        start_turn = proto.StartTurn(game.turn_player_id, 0, tiles_left, client.player.tiles)
+        start_turn = proto.StartTurn(game.turn_player_id, tiles_left, client.player.tiles)
         client.worker.queue_out.put(start_turn)
+
+
+def _end_game(game: 'Game'):
+    game.lobby = True
+    for client in game.clients:
+        client.player.score -= sum(tile.points for tile in client.player.tiles)
+    end_game = proto.EndGame([proto.EndGamePlayer(client.player_id, client.player.score) for client in game.clients])
+    game.send_to_all(end_game)
 
 
 class ReadyHandler(Handler):
@@ -55,23 +65,46 @@ class LeaveHandler(Handler):
             if all_ready:
                 _start_game(game)
         elif len(game.clients) < 2:
-            game.lobby = True
-            end_game = proto.EndGame([proto.EndGamePlayer(client.player_id, client.player.score)
-                                      for client in game.clients])
-            game.send_to_all(end_game)
+            _end_game(game)
         elif game.turn_player_id == client.player_id:
-            game.send_to_all(proto.EndTurn(client.player_id, 0, []))
             game.turn_player_id = game.clients[i % len(game.clients)].player_id
             tiles_left = len(game.free_tiles)
-            for client in game.clients:
-                start_turn = proto.StartTurn(game.turn_player_id, 0, tiles_left, client.player.tiles)
-                client.worker.queue_out.put(start_turn)
+            for client_ in game.clients:
+                start_turn = proto.StartTurn(game.turn_player_id, tiles_left, client_.player.tiles)
+                client_.worker.queue_out.put(start_turn)
 
 
 class TileExchangeHandler(Handler):
     @classmethod
     def _handle(cls, msg: 'proto.TileExchange', client: 'Client', game: 'Game'):
-        ...
+        tiles_left = len(game.free_tiles)
+        if tiles_left < 7:
+            client.worker.queue_out.put(proto.ActionRejected('There are less than 7 tiles left!'))
+        elif game.turn_player_id != client.player_id:
+            client.worker.queue_out.put(proto.ActionRejected('Not player\'s turn!'))
+        elif not msg.tile_ids:
+            client.worker.queue_out.put(proto.ActionRejected('Tile exchange requires at least one selected tile!'))
+        else:
+            tiles = [tile for tile in client.player.tiles if tile.id in msg.tile_ids]
+            tile_count = len(tiles)
+            if len(msg.tile_ids) == tile_count:
+                client.player.tiles = [tile for tile in client.player.tiles if tile not in tiles]
+                game.free_tiles += tiles
+                random.shuffle(game.free_tiles)
+                client.player.tiles += game.free_tiles[:tile_count]
+                game.free_tiles = game.free_tiles[tile_count:]
+                if game.turns_without_score == 5:
+                    _end_game(game)
+                    game.send_to_all(proto.Notification('Game has reached 6 consecutive turns without scoring!'))
+                else:
+                    game.turns_without_score += 1
+                    game.send_to_all(proto.EndTurn(game.turn_player_id, client.player.score, []))
+                    game.turn_player_id = game.clients[(game.clients.index(client) + 1) % len(game.clients)].player_id
+                    for client_ in game.clients:
+                        start_turn = proto.StartTurn(game.turn_player_id, tiles_left, client_.player.tiles)
+                        client_.worker.queue_out.put(start_turn)
+            else:
+                client.worker.queue_out.put(proto.ActionRejected('Selected tiles do not belong to player!'))
 
 
 class PlaceTilesHandler(Handler):

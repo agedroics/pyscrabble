@@ -13,6 +13,7 @@ class Game:
         self.lobby = True
         self.turn_player_id: int = None
         self.queue_in = Queue()
+        self.turns_without_score: int = None
 
     def find_free_player_id(self) -> int:
         taken_ids = set((client.player_id for client in self.clients))

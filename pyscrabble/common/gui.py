@@ -3,7 +3,7 @@ import tkinter as tk
 import tkinter.messagebox
 from abc import ABC, abstractmethod
 from tkinter import simpledialog
-from typing import Tuple, Optional, List, Callable, Any, Dict
+from typing import Tuple, Optional, List, Callable, Any, Dict, Set
 
 import pyscrabble.common.protocol as proto
 from pyscrabble.client.connection import Connection
@@ -106,28 +106,12 @@ class StartGame(ABC, tk.Frame):
         pass
 
 
-def _validate_timer(action, text):
-    if action == '1':
-        try:
-            return 0 <= int(text) < 10000
-        except ValueError:
-            return False
-    return True
-
-
 class HostGame(StartGame):
     def __init__(self, master: tk.Tk):
         super().__init__(master, 'Start')
 
     def _configure_container(self, container: tk.LabelFrame):
         container.config(text='Host Game')
-
-        tk.Label(container, text='Turn Timer:').grid(row=2, column=0, sticky=tk.NW)
-
-        self.__timer_entry = tk.Entry(container, width=5, validate='key',
-                                      validatecommand=(self.register(_validate_timer), '%d', '%P'))
-        self.__timer_entry.insert(0, 0)
-        self.__timer_entry.grid(row=2, column=1, ipady=2, padx=(0, 4), pady=(0, 6), sticky=tk.W)
 
     def _button_action(self, name: str, ip: str, port: int):
         global server
@@ -174,22 +158,25 @@ class ChatFrame(tk.Frame):
         self.__conn = conn
 
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+
+        self.info_frame = InfoFrame(self, self.__conn)
+        self.info_frame.grid(row=0, column=0, columnspan=3, pady=(0, 6), sticky=tk.NSEW)
 
         self.__txt = tk.Text(self, state=tk.DISABLED, wrap=tk.WORD, width=40)
-        self.__txt.grid(row=0, column=0, columnspan=2, pady=(0, 6), sticky=tk.NSEW)
+        self.__txt.grid(row=1, column=0, columnspan=2, pady=(0, 6), sticky=tk.NSEW)
 
         scrollbar = AutoScrollbar(self, orient=tk.VERTICAL, command=self.__txt.yview)
-        scrollbar.grid(row=0, column=2, pady=(0, 6), sticky=tk.NS)
+        scrollbar.grid(row=1, column=2, pady=(0, 6), sticky=tk.NS)
 
         self.__txt.configure(yscrollcommand=scrollbar.set)
 
         self.__text_entry = tk.Entry(self)
         self.__text_entry.bind('<Return>', self.__on_send)
-        self.__text_entry.grid(row=1, column=0, ipady=2, sticky=tk.EW)
+        self.__text_entry.grid(row=2, column=0, ipady=2, sticky=tk.EW)
 
         tk.Button(self, text='Send', command=self.__on_send)\
-            .grid(row=1, column=1, columnspan=2, ipadx=20, padx=(6, 0), sticky=tk.EW)
+            .grid(row=2, column=1, columnspan=2, ipadx=20, padx=(6, 0), sticky=tk.EW)
 
     def __on_send(self, *_):
         text = self.__text_entry.get()
@@ -239,12 +226,12 @@ class LobbyFrame(tk.Frame):
             tk.Label(self.__players_frame, text=client.name)\
                 .grid(row=i, column=0, pady=(2, 0), sticky=tk.W)
             tk.Label(self.__players_frame, text='READY' if client.ready else '')\
-                .grid(row=i, column=1, pady=(2, 0), sticky=tk.E)
+                .grid(row=i, column=1, padx=(6, 0), pady=(2, 0), sticky=tk.E)
 
 
 class BoardFrame(tk.Frame):
     def __init__(self, parent, conn: 'Connection', on_tile_dropped: Callable[['Tile', int, int, bool], Any]):
-        super().__init__(parent)
+        super().__init__(parent, relief=tk.SUNKEN, bd=1)
 
         self.__conn = conn
         self.__on_tile_dropped = on_tile_dropped
@@ -344,7 +331,7 @@ class BoardFrame(tk.Frame):
 
 class TilesCanvas(tk.Canvas):
     def __init__(self, parent, conn: 'Connection', on_tile_dropped: Callable[['Tile', int, int, bool], Any]):
-        super().__init__(parent)
+        super().__init__(parent, relief=tk.RAISED, bd=1)
 
         self.__conn = conn
         self.__on_tile_dropped = on_tile_dropped
@@ -354,9 +341,38 @@ class TilesCanvas(tk.Canvas):
         self.bind('<Button-1>', self.__on_press)
         self.bind('<ButtonRelease-1>', self.__on_release)
 
+        self.exchange_mode = False
+        self.selected_tiles: Set['Tile'] = None
+        self.__selection_items: Dict['Tile', List[int]] = {}
+        self.on_selection_change: Callable[[List['Tile']], Any] = None
+
+    def unselect_tiles(self):
+        if self.__selection_items:
+            for tile in self.__selection_items:
+                for item in self.__selection_items[tile]:
+                    self.delete(item)
+            self.__selection_items = {}
+
     def __on_press(self, event):
         with self.__conn.game.lock:
-            self.__picked_up_tile = self.__tiles[event.x // 50]
+            i = event.x // 50
+            tile = self.__tiles[i]
+            if self.exchange_mode:
+                if tile in self.selected_tiles:
+                    for item in self.__selection_items[tile]:
+                        self.delete(item)
+                    del self.__selection_items[tile]
+                    self.selected_tiles.remove(tile)
+                else:
+                    self.selected_tiles.add(tile)
+                    self.__selection_items[tile] = [
+                        self.create_line(i * 50, 0, (i + 1) * 50, 50, width=2),
+                        self.create_line(i * 50, 50, (i + 1) * 50, 0, width=2)
+                    ]
+                if self.on_selection_change:
+                    self.on_selection_change(self.selected_tiles)
+            else:
+                self.__picked_up_tile = tile
 
     def __on_release(self, event):
         with self.__conn.game.lock:
@@ -402,16 +418,75 @@ class ScrabbleFrame(tk.Frame):
         self.__conn = conn
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
+        self.columnconfigure(4, weight=1)
 
         self.__board = BoardFrame(self, conn, self.__on_tile_dropped)
-        self.__board.grid(row=0, column=0, pady=(0, 6), sticky=tk.NSEW)
+        self.__board.grid(row=0, column=0, columnspan=5, pady=(0, 6), sticky=tk.NSEW)
 
         self.__tiles = TilesCanvas(self, conn, self.__on_tile_dropped)
-        self.__tiles.grid(row=1, column=0, sticky=tk.NS)
+        self.__tiles.grid(row=1, rowspan=2, column=1)
+        self.__tiles.on_selection_change = self.__on_selection_change
+
+        self.__exchange_btn = tk.Button(self, command=self.__on_exchange)
+        self.__exchange_btn.grid(row=1, column=2, ipadx=20, padx=(6, 0))
+
+        def cancel_exchange():
+            with self.__conn.game.lock:
+                self.__cancel_exchange()
+
+        self.__exchange_cancel_btn = tk.Button(self, text='Cancel', command=cancel_exchange, state=tk.DISABLED)
+        self.__exchange_cancel_btn.grid(row=1, column=3, ipadx=20, padx=(6, 0))
+
+        self.__end_turn_btn = tk.Button(self, text='End turn', command=self.__on_end_turn)
+        self.__end_turn_btn.grid(row=2, column=2, columnspan=2, ipadx=20, padx=(6, 0), pady=(6, 0), sticky=tk.EW)
 
     def update_contents(self):
         self.__board.redraw()
         self.__tiles.redraw()
+        self.__cancel_exchange()
+        if self.__conn.game.player_turn:
+            self.__end_turn_btn.configure(state=tk.NORMAL)
+        else:
+            self.__end_turn_btn.configure(state=tk.DISABLED)
+
+        if not self.__conn.game.player_turn or self.__conn.game.tiles_left < 7:
+            self.__exchange_btn.configure(state=tk.DISABLED)
+
+    def __on_end_turn(self):
+        with self.__conn.game.lock:
+            tile_placements: List['proto.PlaceTilesTile'] = []
+            for row in self.__board.temp_tiles:
+                for col in self.__board.temp_tiles[row]:
+                    tile, _ = self.__board.temp_tiles[row][col]
+                    tile_placement = proto.PlaceTilesTile(row * 15 + col, tile.id, tile.letter if not tile.points else None)
+                    tile_placements.append(tile_placement)
+            self.__conn.worker.queue_out.put(proto.PlaceTiles(tile_placements))
+
+    def __on_exchange(self):
+        with self.__conn.game.lock:
+            if self.__tiles.exchange_mode:
+                tile_ids = [tile.id for tile in self.__tiles.selected_tiles]
+                self.__conn.worker.queue_out.put(proto.TileExchange(tile_ids))
+                self.__cancel_exchange()
+            else:
+                self.__tiles.exchange_mode = True
+                self.__tiles.selected_tiles = set()
+                self.__exchange_btn.configure(state=tk.DISABLED, text='Exchange')
+                self.__exchange_cancel_btn.configure(state=tk.NORMAL)
+                self.__end_turn_btn.configure(state=tk.DISABLED)
+
+    def __on_selection_change(self, tiles: List['Tile']):
+        if tiles:
+            self.__exchange_btn.configure(state=tk.NORMAL)
+        else:
+            self.__exchange_btn.configure(state=tk.DISABLED)
+
+    def __cancel_exchange(self):
+        self.__tiles.exchange_mode = False
+        self.__exchange_btn.configure(state=tk.NORMAL, text='Exchange tiles')
+        self.__exchange_cancel_btn.configure(state=tk.DISABLED)
+        self.__end_turn_btn.configure(state=tk.NORMAL)
+        self.__tiles.unselect_tiles()
 
     def __on_tile_dropped(self, tile: 'Tile', x: int, y: int, from_board: bool):
         if self.__board.board == self.winfo_containing(x, y):
@@ -449,6 +524,52 @@ class ScrabbleFrame(tk.Frame):
             self.__tiles.draw_tile(tile)
 
 
+class InfoFrame(tk.Frame):
+    def __init__(self, parent, conn: 'Connection'):
+        super().__init__(parent)
+
+        self.__conn = conn
+        self.columnconfigure(0, weight=1)
+
+        self.__tiles_left_lbl = tk.Label(self)
+        self.__tiles_left_lbl.grid(row=0, column=0, padx=(0, 6), sticky=tk.W)
+
+        self.__leave_btn = tk.Button(self, text='Leave', command=self.__on_leave)\
+            .grid(row=0, column=1, ipadx=20, sticky=tk.E)
+
+        self.__players_frame = tk.Frame(self, bd=1, relief=tk.SUNKEN, padx=2)
+        self.__players_frame.columnconfigure(1, weight=1)
+        self.__players_frame.grid(row=1, column=0, columnspan=2, pady=(6, 0), sticky=tk.NSEW)
+
+    def update_contents(self):
+        if self.__conn.game.lobby:
+            self.grid_remove()
+        else:
+            self.grid()
+            for slave in self.__players_frame.grid_slaves():
+                slave.destroy()
+            tk.Label(self.__players_frame, text='Name', font=('Helvetica', 9, 'bold'))\
+                .grid(row=0, column=1, pady=(2, 0), sticky=tk.W)
+            tk.Label(self.__players_frame, text='Score', font=('Helvetica', 9, 'bold'))\
+                .grid(row=0, column=2, padx=(6, 0), pady=(2, 0), sticky=tk.E)
+            for i, client in enumerate(self.__conn.game.clients.values()):
+                if self.__conn.game.player_id_turn == client.player_id:
+                    tk.Label(self.__players_frame, text='▶')\
+                        .grid(row=i + 1, column=0, pady=(0, 2))
+                tk.Label(self.__players_frame, text=client.name)\
+                    .grid(row=i + 1, column=1, pady=(0, 2), sticky=tk.W)
+                tk.Label(self.__players_frame, text=client.player.score)\
+                    .grid(row=i + 1, column=2, padx=(6, 0), pady=(0, 2), sticky=tk.E)
+            self.__tiles_left_lbl.configure(text=f'Tiles left: {self.__conn.game.tiles_left}')
+
+    def __on_leave(self):
+        self.__conn.stop()
+        global server
+        if server:
+            server.stop()
+            server = None
+
+
 class GameFrame(tk.PanedWindow):
     def __init__(self, master: tk.Tk, name: str, ip: str, port: int):
         super().__init__(master, orient=tk.HORIZONTAL, sashwidth=6)
@@ -482,6 +603,7 @@ class GameFrame(tk.PanedWindow):
 
             if msg.__class__ in _update_msgs:
                 self.__active_frame.update_contents()
+                self.__chat_frame.info_frame.update_contents()
 
     def __change_active_frame(self, frame: tk.Frame):
         self.__active_frame.destroy()
@@ -489,4 +611,4 @@ class GameFrame(tk.PanedWindow):
         self.add(self.__active_frame, before=self.__chat_frame, stretch='always')
 
 
-_update_msgs = {proto.JoinOk, proto.PlayerJoined, proto.PlayerReady, proto.StartTurn, proto.EndGame}
+_update_msgs = {proto.JoinOk, proto.PlayerJoined, proto.PlayerLeft, proto.PlayerReady, proto.StartTurn, proto.EndGame}

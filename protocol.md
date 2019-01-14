@@ -18,19 +18,14 @@ n | name (UTF-8 string)
 1 | 0x01
 ```
 
-### Keep-alive
+### Leave
 ```
 1 | 0x02
 ```
 
-### Leave
-```
-1 | 0x03
-```
-
 ### Tile exchange
 ```
-1 | 0x04
+1 | 0x03
 1 | n
 repeat n times:
     1 | tile ID
@@ -39,7 +34,7 @@ repeat n times:
 
 ### Place tiles
 ```
-1 | 0x05
+1 | 0x04
 1 | n
 repeat n times:
     1 | position (column count * row + column)
@@ -53,7 +48,7 @@ repeat n times:
 
 ### Chat
 ```
-1 | 0x06
+1 | 0x05
 2 | n
 n | text (UTF-8 string)
 ```
@@ -63,7 +58,7 @@ n | text (UTF-8 string)
 
 ### Join OK
 ```
-1 | 0x07
+1 | 0x06
 1 | player ID
 1 | n
 repeat n times:
@@ -78,14 +73,14 @@ repeat n times:
 
 ### Action rejected
 ```
-1 | 0x08
+1 | 0x07
 2 | n
 n | reason (UTF-8 string)
 ```
 
 ### Player joined
 ```
-1 | 0x09
+1 | 0x08
 1 | player ID
 1 | n
 n | name (UTF-8 string)
@@ -94,22 +89,21 @@ n | name (UTF-8 string)
 
 ### Player left
 ```
-1 | 0x0A
+1 | 0x09
 1 | player ID
 ```
 
 ### Player ready
 ```
-1 | 0x0B
+1 | 0x0A
 1 | player ID
 ```
 - If there are at least 2 players and all players have toggled ready, `Start turn` is sent instead
 
 ### Start turn
 ```
-1 | 0x0C
+1 | 0x0B
 1 | player ID
-2 | timer
 1 | tiles left
 1 | n
 repeat n times:
@@ -119,15 +113,13 @@ repeat n times:
     m | letter (UTF-8 symbol)
 ```
 - `player ID` is the ID of the player whose turn it is
-- `timer` is the amount of seconds before the player skips their turn
-- `timer` = 0 means no limit
 - `tiles left` is the amount of drawable tiles left
 - `n` is the amount of tiles on the player's rack
 - `m` = 0 means blank tile
 
 ### End turn
 ```
-1 | 0x0D
+1 | 0x0C
 1 | player ID
 2 | score
 1 | n
@@ -139,26 +131,28 @@ repeat n times:
 ```
 - `player ID` is the ID of the player who completed their turn
 - `score` is the total score of the player who completed their turn
+- `score` is signed
 - `n` is the amount of new tiles on the board
 - If all players have skipped their last turn, `End game` is sent instead
 
 ### End game
 ```
-1 | 0x0E
+1 | 0x0D
 1 | n
 repeat n times:
     1 | player ID
     2 | score
 ```
+- `score` is signed
 
 ### Shutdown
 ```
-1 | 0x0F
+1 | 0x0E
 ```
 
 ### Player chat
 ```
-1 | 0x10
+1 | 0x0F
 1 | player ID
 2 | n
 n | text (UTF-8 string)
@@ -166,7 +160,7 @@ n | text (UTF-8 string)
 
 ### Notification
 ```
-1 | 0x11
+1 | 0x10
 2 | n
 n | text (UTF-8 string)
 ```

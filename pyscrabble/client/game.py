@@ -14,6 +14,7 @@ class Game:
         self.player_turn: bool = None
         self.queue_in = Queue()
         self.on_update = on_update
+        self.player_id_turn: int = None
 
     def process_incoming_messages(self):
         while True:

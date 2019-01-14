@@ -50,10 +50,6 @@ class Ready(ClientMessage):
     ...
 
 
-class KeepAlive(ClientMessage):
-    ...
-
-
 class Leave(ClientMessage):
     ...
 
@@ -123,11 +119,10 @@ class Chat(ClientMessage):
 ClientMessage.prefix_map = bidict({
     b'\x00': Join,
     b'\x01': Ready,
-    b'\x02': KeepAlive,
-    b'\x03': Leave,
-    b'\x04': TileExchange,
-    b'\x05': PlaceTiles,
-    b'\x06': Chat
+    b'\x02': Leave,
+    b'\x03': TileExchange,
+    b'\x04': PlaceTiles,
+    b'\x05': Chat
 })
 
 
@@ -224,15 +219,14 @@ class PlayerReady(ServerMessage):
 
 
 class StartTurn(ServerMessage):
-    def __init__(self, player_id: int, timer: int, tiles_left: int, tiles: List['model.Tile']):
+    def __init__(self, player_id: int, tiles_left: int, tiles: List['model.Tile']):
         self.player_id = player_id
-        self.timer = timer
         self.tiles_left = tiles_left
         self.tiles = tiles
 
     @_serializer
     def serialize(self) -> bytes:
-        result = utils.int_to_byte(self.player_id) + self.timer.to_bytes(2, byteorder='big')
+        result = utils.int_to_byte(self.player_id)
         result += utils.int_to_byte(self.tiles_left) + utils.int_to_byte(len(self.tiles))
         for tile in self.tiles:
             result += utils.int_to_byte(tile.id) + utils.int_to_byte(tile.points)
@@ -246,7 +240,6 @@ class StartTurn(ServerMessage):
     @classmethod
     def _deserialize(cls, stream: 'Stream') -> 'StartTurn':
         player_id = stream.get_int()
-        timer = stream.get_int(2)
         tiles_left = stream.get_int()
         tiles: List['model.Tile'] = []
         for _ in range(stream.get_int()):
@@ -255,7 +248,7 @@ class StartTurn(ServerMessage):
             m = stream.get_int()
             letter = stream.get_str(m) if m else None
             tiles.append(model.Tile(tile_id, points, letter))
-        return cls(player_id, timer, tiles_left, tiles)
+        return cls(player_id, tiles_left, tiles)
 
 
 class EndTurnTile:
@@ -273,7 +266,7 @@ class EndTurn(ServerMessage):
 
     @_serializer
     def serialize(self) -> bytes:
-        result = utils.int_to_byte(self.player_id) + self.score.to_bytes(2, byteorder='big')
+        result = utils.int_to_byte(self.player_id) + self.score.to_bytes(2, byteorder='big', signed=True)
         result += utils.int_to_byte(len(self.placed_tiles))
         for tile in self.placed_tiles:
             result += utils.int_to_byte(tile.position) + utils.int_to_byte(tile.points)
@@ -284,7 +277,7 @@ class EndTurn(ServerMessage):
     @classmethod
     def _deserialize(cls, stream: 'Stream') -> 'EndTurn':
         player_id = stream.get_int()
-        score = stream.get_int(2)
+        score = stream.get_int(2, signed=True)
         tiles = [EndTurnTile(stream.get_int(), stream.get_int(), stream.get_str(stream.get_int()))
                  for _ in range(stream.get_int())]
         return cls(player_id, score, tiles)
@@ -304,17 +297,16 @@ class EndGame(ServerMessage):
     def serialize(self) -> bytes:
         result = utils.int_to_byte(len(self.players))
         for player in self.players:
-            result += utils.int_to_byte(player.player_id) + player.score.to_bytes(2, byteorder='big')
+            result += utils.int_to_byte(player.player_id) + player.score.to_bytes(2, byteorder='big', signed=True)
         return result
 
     @classmethod
     def _deserialize(cls, stream: 'Stream') -> 'EndGame':
-        return cls([EndGamePlayer(stream.get_int(), stream.get_int(2)) for _ in range(stream.get_int())])
+        return cls([EndGamePlayer(stream.get_int(), stream.get_int(2, signed=True)) for _ in range(stream.get_int())])
 
 
 class Shutdown(ServerMessage):
     ...
-
 
 class PlayerChat(ServerMessage):
     def __init__(self, player_id: int, text: str):
@@ -346,17 +338,17 @@ class Notification(ServerMessage):
 
 
 ServerMessage.prefix_map = bidict({
-    b'\x07': JoinOk,
-    b'\x08': ActionRejected,
-    b'\x09': PlayerJoined,
-    b'\x0A': PlayerLeft,
-    b'\x0B': PlayerReady,
-    b'\x0C': StartTurn,
-    b'\x0D': EndTurn,
-    b'\x0E': EndGame,
-    b'\x0F': Shutdown,
-    b'\x10': PlayerChat,
-    b'\x11': Notification
+    b'\x06': JoinOk,
+    b'\x07': ActionRejected,
+    b'\x08': PlayerJoined,
+    b'\x09': PlayerLeft,
+    b'\x0A': PlayerReady,
+    b'\x0B': StartTurn,
+    b'\x0C': EndTurn,
+    b'\x0D': EndGame,
+    b'\x0E': Shutdown,
+    b'\x0F': PlayerChat,
+    b'\x10': Notification
 })
 
 Message.prefix_map = bidict({**ClientMessage.prefix_map, **ServerMessage.prefix_map})
