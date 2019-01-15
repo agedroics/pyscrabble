@@ -75,7 +75,7 @@ class TileExchange(ClientMessage):
 class PlaceTilesTile:
     def __init__(self, position: int, tile_id: int, letter: str = None):
         self.position = position
-        self.tile_id = tile_id
+        self.id = tile_id
         self.letter = letter
 
 
@@ -87,7 +87,7 @@ class PlaceTiles(ClientMessage):
     def serialize(self) -> bytes:
         result = utils.int_to_byte(len(self.tile_placements))
         for tile in self.tile_placements:
-            result += utils.int_to_byte(tile.position) + utils.int_to_byte(tile.tile_id)
+            result += utils.int_to_byte(tile.position) + utils.int_to_byte(tile.id)
             if tile.letter is None:
                 result += b'\x00'
             else:

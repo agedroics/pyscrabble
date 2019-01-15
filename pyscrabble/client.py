@@ -35,6 +35,9 @@ class Connection:
         self.worker.queue_out.put(proto.Leave())
         self.game.queue_in.put((None,))
 
+    def send_msg(self, msg: 'proto.ClientMessage'):
+        self.worker.queue_out.put(msg)
+
 
 class Game:
     def __init__(self, on_update: Callable[['proto.ServerMessage', Optional[str]], Any]):
@@ -131,17 +134,12 @@ class StartTurnHandler(Handler):
 
 class EndTurnHandler(Handler):
     @classmethod
-    def _handle(cls, msg: 'proto.EndTurn', game: 'Game') -> Optional[str]:
+    def _handle(cls, msg: 'proto.EndTurn', game: 'Game') -> None:
         client = game.clients[msg.player_id]
-        score_gained = msg.score - client.player.score
         client.player.score = msg.score
         for placed_tile in msg.placed_tiles:
             tile = Tile(None, placed_tile.points, placed_tile.letter)
             game.board[placed_tile.position].tile = tile
-        if score_gained:
-            return f'{"You" if game.player_turn else client.name} earned {score_gained} points'
-        else:
-            return f'{"You" if game.player_turn else client.name} skipped'
 
 
 class EndGameHandler(Handler):
@@ -151,7 +149,7 @@ class EndGameHandler(Handler):
         for client in game.clients.values():
             client.ready = False
         msg.players.sort(key=lambda player: player.score, reverse=True)
-        return 'Game over!' + ''.join(f'\n{game.clients[player.player_id].name} -> {player.score} points'
+        return 'Game over!' + ''.join(f'\n{game.clients[player.player_id].name} - {player.score} points'
                                       for player in msg.players)
 
 

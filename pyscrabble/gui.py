@@ -191,13 +191,16 @@ class ChatFrame(tk.Frame):
     def __on_send(self, *_):
         text = self.__text_entry.get()
         if text:
-            self.__conn.worker.queue_out.put(proto.Chat(self.__text_entry.get()))
+            self.__conn.send_msg(proto.Chat(self.__text_entry.get()))
             self.__text_entry.delete(0, tk.END)
 
     def add_text(self, text: str):
         self.__txt.config(state=tk.NORMAL)
         self.__txt.insert(tk.END, f'{text}\n')
         self.__txt.config(state=tk.DISABLED)
+        self.__txt.yview_moveto(1)
+
+    def scroll_to_bottom(self):
         self.__txt.yview_moveto(1)
 
 
@@ -220,7 +223,7 @@ class LobbyFrame(tk.Frame):
             .grid(row=1, column=2, ipadx=20, sticky=tk.E)
 
     def __on_ready(self):
-        self.__conn.worker.queue_out.put(proto.Ready())
+        self.__conn.send_msg(proto.Ready())
 
     def __on_back(self):
         self.__conn.stop()
@@ -286,10 +289,11 @@ class BoardCanvas(tk.Canvas):
         self.temp_tiles = {}
         self.__picked_up_tile = None
         self.delete(tk.ALL)
+        tiles = []
         for row, squares in enumerate(self.__conn.game.board.squares):
             for col, square in enumerate(squares):
                 if square.tile:
-                    self.draw_tile(row, col, square.tile)
+                    tiles.append((row, col, square.tile))
                 else:
                     text, bg_color, text_color = BoardCanvas.__lookup[square.type]
                     self.create_rectangle(col * 50, row * 50, col * 50 + 50, row * 50 + 50,
@@ -301,6 +305,8 @@ class BoardCanvas(tk.Canvas):
                         for i, string in enumerate(text.split(sep=' ')):
                             self.create_text(col * 50 + 25, row * 50 + 13 + i * 12,
                                                    text=string, font=('Helvetica', 6, 'bold'), fill=text_color)
+        for row, col, tile in tiles:
+            self.draw_tile(row, col, tile)
 
     def draw_tile(self, row: int, col: int, tile: 'Tile', temp: bool = False):
         items = [
@@ -458,13 +464,13 @@ class ScrabbleFrame(tk.Frame):
                     tile, _ = self.__board.temp_tiles[row][col]
                     tile_placement = proto.PlaceTilesTile(row * 15 + col, tile.id, tile.letter if not tile.points else None)
                     tile_placements.append(tile_placement)
-            self.__conn.worker.queue_out.put(proto.PlaceTiles(tile_placements))
+            self.__conn.send_msg(proto.PlaceTiles(tile_placements))
 
     def __on_exchange(self):
         with self.__conn.game.lock:
             if self.__tiles.exchange_mode:
                 tile_ids = [tile.id for tile in self.__tiles.selected_tiles]
-                self.__conn.worker.queue_out.put(proto.TileExchange(tile_ids))
+                self.__conn.send_msg(proto.TileExchange(tile_ids))
                 self.__cancel_exchange()
             else:
                 self.__tiles.exchange_mode = True
@@ -601,6 +607,12 @@ class GameFrame(tk.Frame):
                     self.master.focus_force()
             elif isinstance(msg, proto.EndGame):
                 self.__set_active_frame(LobbyFrame(self, self.__conn))
+            elif isinstance(msg, proto.PlayerLeft) and len(self.__conn.game.clients) == 1:
+                global server
+                if server:
+                    self.__set_active_frame(LobbyFrame(self, self.__conn))
+                else:
+                    self.master.set_frame(MainMenu(self.master))
 
             if msg.__class__ in GameFrame._update_msgs:
                 self.__active_frame.update_contents()
@@ -615,4 +627,9 @@ class GameFrame(tk.Frame):
         root = self.winfo_toplevel()
         root.minsize(0, 0)
         root.geometry('')
-        self.after(100, lambda: root.minsize(root.winfo_width(), 0))
+
+        def adjust_window():
+            root.minsize(root.winfo_width(), 0)
+            self.__chat_frame.scroll_to_bottom()
+
+        self.after(100, adjust_window)
