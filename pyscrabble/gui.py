@@ -401,7 +401,7 @@ class TilesCanvas(tk.Canvas):
             self.create_text(i * 50 + 33, 35, text=tile.points, anchor=tk.W, font=('Helvetica', 8, 'bold'))
         self.__tiles.append(tile)
         width = 50 * len(self.__tiles)
-        self.configure(width=width, height=50, scrollregion=(0, 0, width, 50))
+        self.configure(width=width, height=50, scrollregion=(0, 0, width, 50), bd=1)
 
     def delete_tile(self, tile: 'Tile'):
         for i, tile_ in enumerate(self.__tiles):
@@ -412,6 +412,8 @@ class TilesCanvas(tk.Canvas):
                 self.delete(tk.ALL)
                 for tile in tiles:
                     self.draw_tile(tile)
+                if not self.__tiles:
+                    self.configure(width=0, height=50, scrollregion=(0, 0, 0, 50), bd=0)
                 break
 
 

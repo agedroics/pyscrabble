@@ -324,7 +324,7 @@ class PlaceTilesHandler(Handler):
             return
 
         if any(not tile.letter for tile in tiles):
-            client.send_msg(proto.ActionRejected('All blank tiles must be assigned a letter!'))
+            client.send_msg(proto.ActionRejected('Blank tiles must be assigned a letter!'))
             return
 
         if all(tile.row == tiles[0].row for tile in tiles):
@@ -334,7 +334,7 @@ class PlaceTilesHandler(Handler):
             for tile in tiles:
                 tile.row, tile.col = tile.col, tile.row
         else:
-            client.send_msg(proto.ActionRejected('All tiles must form a horizontal or vertical line!'))
+            client.send_msg(proto.ActionRejected('Tiles must form a horizontal or vertical line!'))
             return
 
         row = tiles[0].row
@@ -342,7 +342,7 @@ class PlaceTilesHandler(Handler):
         tiles_by_col = {tile.col: tile for tile in tiles}
         for col in range(tiles[0].col + 1, tiles[-1].col + 1):
             if not squares[row][col].tile and col not in tiles_by_col:
-                client.send_msg(proto.ActionRejected('All tiles must form a single line!'))
+                client.send_msg(proto.ActionRejected('Tiles must form a single line!'))
                 return
 
         if not squares[7][7].tile:
@@ -422,7 +422,7 @@ class PlaceTilesHandler(Handler):
             client.player.tiles += game.free_tiles[:take_tiles_count]
             game.free_tiles = game.free_tiles[take_tiles_count:]
         elif not client.player.tiles:
-            game.send_to_all(proto.Notification(f'{client.name} has played out!'))
+            game.send_to_all(proto.Notification(f'{client.name} has played out!'), client.player_id)
             client.send_msg(proto.Notification('You have played out!'))
             all_sums = 0
             for client_ in game.clients:
