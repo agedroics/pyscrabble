@@ -1,8 +1,8 @@
 import gzip
 import random
+import socket
 from abc import ABC
 from queue import Queue
-from socket import socket, AF_INET, SOCK_STREAM
 from threading import Thread, Lock
 from typing import List, Set, Tuple, Dict, Type, Optional
 
@@ -78,7 +78,8 @@ class Server:
 
     def start(self, ip: str, port: int):
         if self.__socket is None:
-            self.__socket = socket(AF_INET, SOCK_STREAM)
+            self.__socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.__socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.__socket.bind((ip, port))
             self.__socket.listen(1)
             load_words()
