@@ -1,7 +1,12 @@
+import socket
 from abc import ABC
-from typing import Callable, List
+from queue import Queue
+from typing import Callable, List, Type
 
 from bidict import bidict
+
+import pyscrabble.model as model
+import pyscrabble.utils as utils
 
 
 def _serializer(func: Callable[['Message'], bytes]) -> Callable[['Message'], bytes]:
@@ -353,7 +358,83 @@ ServerMessage.prefix_map = bidict({
 
 Message.prefix_map = bidict({**ClientMessage.prefix_map, **ServerMessage.prefix_map})
 
-from pyscrabble.common.stream import Stream
 
-import pyscrabble.common.model as model
-import pyscrabble.common.utils as utils
+class Stream:
+    def __init__(self, s: socket.socket, in_msg_type: Type['Message']):
+        self.__socket = s
+        self.__in_msg_type = in_msg_type
+        self.__buffer = b''
+
+    def get_bytes(self, n: int) -> bytes:
+        result = b''
+        while n > 0:
+            if self.__buffer:
+                bytes_to_take = min(n, len(self.__buffer))
+                result += self.__buffer[:bytes_to_take]
+                self.__buffer = self.__buffer[bytes_to_take:]
+                n -= bytes_to_take
+            else:
+                self.__buffer = self.__socket.recv(1024)
+                if not self.__buffer:
+                    self.__socket.close()
+                    break
+        return result
+
+    def get_int(self, n: int = 1, signed=False) -> int:
+        return int.from_bytes(self.get_bytes(n), byteorder='big', signed=signed)
+
+    def get_str(self, n: int) -> str:
+        return self.get_bytes(n).decode('utf-8')
+
+    def get_msg(self) -> 'Message':
+        return self.__in_msg_type.deserialize(self)
+
+    def send_msg(self, msg: 'Message'):
+        self.__socket.sendall(msg.serialize())
+
+    def close(self):
+        try:
+            self.__socket.shutdown(socket.SHUT_RDWR)
+            self.__socket.close()
+        except IOError:
+            pass
+
+
+class StreamWorker:
+    def __init__(self, stream: 'Stream', queue_in: Queue, *extra_info):
+        self.__stream = stream
+        self.__queue_in = queue_in
+        self.queue_out = Queue()
+        self.__extra_info = extra_info
+
+    def listen_incoming(self):
+        try:
+            while True:
+                msg = self.__stream.get_msg()
+                if msg:
+                    self.__queue_in.put((msg, *self.__extra_info))
+                    if isinstance(msg, Leave) or isinstance(msg, Shutdown):
+                        break
+                else:
+                    self.__queue_in.put((None, *self.__extra_info))
+                    break
+        except socket.error:
+            self.__queue_in.put((None, *self.__extra_info))
+        finally:
+            self.__stream.close()
+            self.queue_out.put(None)
+
+    def listen_outgoing(self):
+        try:
+            while True:
+                msg = self.queue_out.get()
+                if msg:
+                    self.__stream.send_msg(msg)
+                    if isinstance(msg, Leave) or isinstance(msg, Shutdown):
+                        break
+                else:
+                    break
+        except socket.error:
+            self.__queue_in.put((None, *self.__extra_info))
+        finally:
+            self.__stream.close()

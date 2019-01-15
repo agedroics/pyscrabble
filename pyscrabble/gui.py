@@ -5,10 +5,10 @@ from abc import ABC, abstractmethod
 from tkinter import simpledialog
 from typing import Tuple, Optional, List, Callable, Any, Dict, Set
 
-import pyscrabble.common.protocol as proto
-from pyscrabble.client.connection import Connection
-from pyscrabble.common.model import SquareType, Tile
-from pyscrabble.server.server import Server
+import pyscrabble.protocol as proto
+from pyscrabble.client import Connection
+from pyscrabble.model import SquareType, Tile
+from pyscrabble.server import Server
 
 server: 'Server' = None
 
@@ -571,6 +571,8 @@ class InfoFrame(tk.Frame):
 
 
 class GameFrame(tk.PanedWindow):
+    _update_msgs = {proto.JoinOk, proto.PlayerJoined, proto.PlayerLeft, proto.PlayerReady, proto.StartTurn, proto.EndGame}
+
     def __init__(self, master: tk.Tk, name: str, ip: str, port: int):
         super().__init__(master, orient=tk.HORIZONTAL, sashwidth=6)
 
@@ -601,7 +603,7 @@ class GameFrame(tk.PanedWindow):
             elif isinstance(msg, proto.EndGame):
                 self.__change_active_frame(LobbyFrame(self, self.__conn))
 
-            if msg.__class__ in _update_msgs:
+            if msg.__class__ in GameFrame._update_msgs:
                 self.__active_frame.update_contents()
                 self.__chat_frame.info_frame.update_contents()
 
@@ -609,6 +611,3 @@ class GameFrame(tk.PanedWindow):
         self.__active_frame.destroy()
         self.__active_frame = frame
         self.add(self.__active_frame, before=self.__chat_frame, stretch='always')
-
-
-_update_msgs = {proto.JoinOk, proto.PlayerJoined, proto.PlayerLeft, proto.PlayerReady, proto.StartTurn, proto.EndGame}
