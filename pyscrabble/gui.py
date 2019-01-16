@@ -568,7 +568,7 @@ class InfoFrame(tk.Frame):
             tk.Label(self.__players_frame, text=client.player.score)\
                 .grid(row=i + 1, column=3, padx=(6, 0), pady=(0, 2), sticky=tk.E)
         self.__tiles_left_lbl.configure(text=f'Tiles left: {self.__conn.game.tiles_left}',
-                                        fg='black' if self.__conn.game.tiles_left else 'red')
+                                        fg='red' if len(self.__conn.game.tiles_left) < 7 else 'black')
 
     def __on_leave(self):
         self.__conn.stop()
@@ -612,6 +612,7 @@ class GameFrame(tk.Frame):
                 if isinstance(self.__active_frame, LobbyFrame):
                     self.__set_active_frame(ScrabbleFrame(self, self.__conn))
                 if self.__conn.game.player_turn:
+                    self.master.deiconify()
                     self.master.focus_force()
             elif isinstance(msg, proto.EndGame):
                 self.__set_active_frame(LobbyFrame(self, self.__conn))
