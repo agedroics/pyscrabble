@@ -624,7 +624,7 @@ class GameFrame(tk.Frame):
                     self.master.focus_force()
             elif isinstance(msg, proto.EndGame):
                 msg.players.sort(key=lambda player: player.score, reverse=True)
-                text = '\n'.join(f'{i}. {self.__conn.game.clients[player.player_id].name}: {player.score} points'
+                text = '\n'.join(f'{i + 1}. {self.__conn.game.clients[player.player_id].name}: {player.score} points'
                                  for i, player in enumerate(msg.players))
                 tk.messagebox.showinfo('Game over!', text)
                 self.__set_active_frame(LobbyFrame(self, self.__conn))
