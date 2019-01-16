@@ -550,7 +550,7 @@ class InfoFrame(tk.Frame):
 
     def update_contents(self):
         for slave in self.__players_frame.grid_slaves():
-                slave.destroy()
+            slave.destroy()
         tk.Label(self.__players_frame, text='Name', font=('Helvetica', 9, 'bold'))\
             .grid(row=0, column=1, pady=(2, 0), sticky=tk.W)
         tk.Label(self.__players_frame, text='Tiles', font=('Helvetica', 9, 'bold'))\

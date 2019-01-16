@@ -1,7 +1,7 @@
 import socket
 from abc import ABC
 from queue import Queue
-from threading import Lock, Thread
+from threading import RLock, Thread
 from typing import Any, Dict, Callable, Optional, Type
 
 import pyscrabble.protocol as proto
@@ -45,7 +45,7 @@ class Game:
         self.board: 'Board' = None
         self.tiles_left: int = None
         self.clients: Dict[int, 'Client'] = {}
-        self.lock = Lock()
+        self.lock = RLock()
         self.lobby = True
         self.player_client: 'Client' = None
         self.player_turn: bool = None
