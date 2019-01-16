@@ -172,6 +172,7 @@ def _lobby_only(handler):
             handler(cls, msg, client, game)
     return handler_
 
+
 def _turn_only(handler):
     def handler_(cls, msg, client, game):
         if not game.lobby:
@@ -208,8 +209,9 @@ def _start_game(game: 'Game'):
     game.send_to_all(proto.Notification('Game started!'))
     game.turn_player_id = game.clients[random.randint(0, len(game.clients) - 1)].player_id
     tiles_left = len(game.free_tiles)
+    player_tile_counts = [proto.StartTurnPlayer(client.player_id, 7) for client in game.clients]
     for client in game.clients:
-        start_turn = proto.StartTurn(game.turn_player_id, tiles_left, client.player.tiles)
+        start_turn = proto.StartTurn(game.turn_player_id, tiles_left, client.player.tiles, player_tile_counts)
         client.send_msg(start_turn)
 
 
@@ -239,8 +241,11 @@ class LeaveHandler(Handler):
         elif game.turn_player_id == client.player_id:
             game.turn_player_id = game.clients[i % len(game.clients)].player_id
             tiles_left = len(game.free_tiles)
+            player_tile_counts = [proto.StartTurnPlayer(client.player_id, len(client.player.tiles))
+                                  for client in game.clients]
             for client_ in game.clients:
-                client_.send_msg(proto.StartTurn(game.turn_player_id, tiles_left, client_.player.tiles))
+                client_.send_msg(proto.StartTurn(game.turn_player_id, tiles_left, client_.player.tiles,
+                                                 player_tile_counts))
 
 
 def _end_turn_without_score(client: 'Client', game: 'Game'):
@@ -259,8 +264,10 @@ def _end_turn_without_score(client: 'Client', game: 'Game'):
         game.send_to_all(proto.EndTurn(game.turn_player_id, client.player.score, []))
         game.turn_player_id = game.clients[(game.clients.index(client) + 1) % len(game.clients)].player_id
         tiles_left = len(game.free_tiles)
+        player_tile_counts = [proto.StartTurnPlayer(client.player_id, len(client.player.tiles))
+                              for client in game.clients]
         for client_ in game.clients:
-            start_turn = proto.StartTurn(game.turn_player_id, tiles_left, client_.player.tiles)
+            start_turn = proto.StartTurn(game.turn_player_id, tiles_left, client_.player.tiles, player_tile_counts)
             client_.send_msg(start_turn)
 
 
@@ -303,6 +310,7 @@ class WordCounter:
         self.word = ''
         self.points = 0
         self.multiplier = 1
+        self.is_connected = False
 
 
 class PlaceTilesHandler(Handler):
@@ -328,9 +336,11 @@ class PlaceTilesHandler(Handler):
             return
 
         if all(tile.row == tiles[0].row for tile in tiles):
-            squares = game.board.squares
+            def accessor(coord1, coord2):
+                return game.board.squares[coord1][coord2]
         elif all(tile.col == tiles[0].col for tile in tiles):
-            squares = [*zip(*game.board.squares)]
+            def accessor(coord1, coord2):
+                return game.board.squares[coord2][coord1]
             for tile in tiles:
                 tile.row, tile.col = tile.col, tile.row
         else:
@@ -340,12 +350,17 @@ class PlaceTilesHandler(Handler):
         row = tiles[0].row
         tiles.sort(key=lambda tile: tile.col)
         tiles_by_col = {tile.col: tile for tile in tiles}
+        for tile in tiles:
+            if tile.row not in range(15) or tile.col not in range(15) or tiles_by_col.get(tile.col) != tile or accessor(tile.row, tile.col).tile:
+                client.send_msg(proto.ActionRejected('Tiles are overlapping or out of bounds!'))
+                return
+
         for col in range(tiles[0].col + 1, tiles[-1].col + 1):
-            if not squares[row][col].tile and col not in tiles_by_col:
+            if not accessor(row, col).tile and col not in tiles_by_col:
                 client.send_msg(proto.ActionRejected('Tiles must form a single line!'))
                 return
 
-        if not squares[7][7].tile:
+        if not accessor(7, 7).tile:
             if row != 7 or 7 not in tiles_by_col:
                 client.send_msg(proto.ActionRejected('The center square must be populated!'))
                 return
@@ -356,17 +371,19 @@ class PlaceTilesHandler(Handler):
         def count_word(tile_from: 'FullTile', horizontal: bool = False) -> Optional['WordCounter']:
             counter = WordCounter()
             for i in range((tile_from.col if horizontal else tile_from.row) - 1, -1, -1):
-                tile = squares[row][i].tile if horizontal else squares[i][tile_from.col].tile
+                tile = accessor(row, i).tile if horizontal else accessor(i, tile_from.col).tile
                 if not tile:
                     break
                 counter.points += tile.points
                 counter.word = tile.letter + counter.word
+                counter.is_connected = True
 
             for i in range(tile_from.col if horizontal else tile_from.row, 15):
-                square = squares[row][i] if horizontal else squares[i][tile_from.col]
+                square = accessor(row, i) if horizontal else accessor(i, tile_from.col)
                 if square.tile:
                     tile = square.tile
                     counter.points += tile.points
+                    counter.is_connected = True
                 elif (i in tiles_by_col) if horizontal else (i == tile_from.row):
                     tile = tiles_by_col[i] if horizontal else tile_from
                     if square.type == SquareType.DLS:
@@ -394,10 +411,14 @@ class PlaceTilesHandler(Handler):
             if word_counter:
                 word_counters.append(word_counter)
 
+        if all(not counter.is_connected for counter in word_counters) and accessor(7, 7).tile:
+            client.send_msg(proto.ActionRejected('Must connect with pre-existing tiles!'))
+            return
+
         global words
-        invalid_words = [counter.word for counter in word_counters if counter.word not in words]
+        invalid_words = {counter.word for counter in word_counters if counter.word not in words}
         if invalid_words:
-            client.send_msg(proto.ActionRejected(f'Invalid word{"" if len(invalid_words) == 1 else "s"}: {" ".join(invalid_words)}'))
+            client.send_msg(proto.ActionRejected(f'Invalid word{"" if len(invalid_words) == 1 else "s"}: {", ".join(invalid_words)}'))
             return
 
         for counter in word_counters:
@@ -410,7 +431,7 @@ class PlaceTilesHandler(Handler):
             game.send_to_all(proto.Notification('Bingo! - 50 points'))
 
         for tile in tiles:
-            squares[tile.row][tile.col].tile = tile
+            accessor(tile.row, tile.col).tile = tile
 
         game.turns_without_score = 0
 
@@ -442,8 +463,10 @@ class PlaceTilesHandler(Handler):
         game.send_to_all(proto.EndTurn(game.turn_player_id, client.player.score, placed_tiles))
         game.turn_player_id = game.clients[(game.clients.index(client) + 1) % len(game.clients)].player_id
         tiles_left = len(game.free_tiles)
+        player_tile_counts = [proto.StartTurnPlayer(client.player_id, len(client.player.tiles))
+                              for client in game.clients]
         for client_ in game.clients:
-            start_turn = proto.StartTurn(game.turn_player_id, tiles_left, client_.player.tiles)
+            start_turn = proto.StartTurn(game.turn_player_id, tiles_left, client_.player.tiles, player_tile_counts)
             client_.send_msg(start_turn)
 
 

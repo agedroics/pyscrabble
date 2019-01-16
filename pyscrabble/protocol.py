@@ -3,15 +3,13 @@ from abc import ABC
 from queue import Queue
 from typing import Callable, List, Type
 
-from bidict import bidict
-
 import pyscrabble.model as model
 import pyscrabble.utils as utils
 
 
 def _serializer(func: Callable[['Message'], bytes]) -> Callable[['Message'], bytes]:
     def wrapper(self: 'Message') -> bytes:
-        return Message.prefix_map.inv.get(type(self)) + func(self)
+        return Message.prefix_map_inv[type(self)] + func(self)
     return wrapper
 
 
@@ -121,14 +119,15 @@ class Chat(ClientMessage):
         return cls(stream.get_str(stream.get_int(2)))
 
 
-ClientMessage.prefix_map = bidict({
+ClientMessage.prefix_map = {
     b'\x00': Join,
     b'\x01': Ready,
     b'\x02': Leave,
     b'\x03': TileExchange,
     b'\x04': PlaceTiles,
     b'\x05': Chat
-})
+}
+ClientMessage.prefix_map_inv = {value: key for key, value in ClientMessage.prefix_map.items()}
 
 
 class ServerMessage(Message, ABC):
@@ -223,15 +222,23 @@ class PlayerReady(ServerMessage):
         return cls(stream.get_int())
 
 
+class StartTurnPlayer:
+    def __init__(self, player_id: int, tile_count: int):
+        self.id = player_id
+        self.tile_count = tile_count
+
+
 class StartTurn(ServerMessage):
-    def __init__(self, player_id: int, tiles_left: int, tiles: List['model.Tile']):
-        self.player_id = player_id
+    def __init__(self, turn_player_id: int, tiles_left: int, tiles: List['model.Tile'],
+                 player_tile_counts: List['StartTurnPlayer']):
+        self.turn_player_id = turn_player_id
         self.tiles_left = tiles_left
         self.tiles = tiles
+        self.player_tile_counts = player_tile_counts
 
     @_serializer
     def serialize(self) -> bytes:
-        result = utils.int_to_byte(self.player_id)
+        result = utils.int_to_byte(self.turn_player_id)
         result += utils.int_to_byte(self.tiles_left) + utils.int_to_byte(len(self.tiles))
         for tile in self.tiles:
             result += utils.int_to_byte(tile.id) + utils.int_to_byte(tile.points)
@@ -240,6 +247,9 @@ class StartTurn(ServerMessage):
             else:
                 b = tile.letter.encode('utf-8')
                 result += utils.int_to_byte(len(b)) + b
+        result += utils.int_to_byte(len(self.player_tile_counts))
+        for player in self.player_tile_counts:
+            result += utils.int_to_byte(player.id) + utils.int_to_byte(player.tile_count)
         return result
 
     @classmethod
@@ -253,7 +263,10 @@ class StartTurn(ServerMessage):
             m = stream.get_int()
             letter = stream.get_str(m) if m else None
             tiles.append(model.Tile(tile_id, points, letter))
-        return cls(player_id, tiles_left, tiles)
+        player_tile_counts: List['StartTurnPlayer'] = []
+        for _ in range(stream.get_int()):
+            player_tile_counts.append(StartTurnPlayer(stream.get_int(), stream.get_int()))
+        return cls(player_id, tiles_left, tiles, player_tile_counts)
 
 
 class EndTurnTile:
@@ -313,6 +326,7 @@ class EndGame(ServerMessage):
 class Shutdown(ServerMessage):
     ...
 
+
 class PlayerChat(ServerMessage):
     def __init__(self, player_id: int, text: str):
         self.player_id = player_id
@@ -342,7 +356,7 @@ class Notification(ServerMessage):
         return cls(stream.get_str(stream.get_int(2)))
 
 
-ServerMessage.prefix_map = bidict({
+ServerMessage.prefix_map = {
     b'\x06': JoinOk,
     b'\x07': ActionRejected,
     b'\x08': PlayerJoined,
@@ -354,9 +368,11 @@ ServerMessage.prefix_map = bidict({
     b'\x0E': Shutdown,
     b'\x0F': PlayerChat,
     b'\x10': Notification
-})
+}
+ServerMessage.prefix_map_inv = {value: key for key, value in ServerMessage.prefix_map.items()}
 
-Message.prefix_map = bidict({**ClientMessage.prefix_map, **ServerMessage.prefix_map})
+Message.prefix_map = {**ClientMessage.prefix_map, **ServerMessage.prefix_map}
+Message.prefix_map_inv = {**ClientMessage.prefix_map_inv, **ServerMessage.prefix_map_inv}
 
 
 class Stream:

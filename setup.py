@@ -13,9 +13,6 @@ setup(
         'Programming Language :: Python :: 3.6',
         'Topic :: Games/Entertainment :: Board Games'
     ],
-    install_requires=[
-        'bidict>=0.17,<1'
-    ],
     packages=['pyscrabble'],
     entry_points={
         'gui_scripts': [

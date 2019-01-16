@@ -14,6 +14,7 @@ class Client:
         self.name = name
         self.player: 'Player' = None
         self.ready = ready
+        self.tile_count: int = None
 
 
 class Connection:
@@ -50,7 +51,7 @@ class Game:
         self.player_turn: bool = None
         self.queue_in = Queue()
         self.on_update = on_update
-        self.player_id_turn: int = None
+        self.turn_player_id: int = None
 
     def process_incoming_messages(self):
         while True:
@@ -106,6 +107,8 @@ class PlayerLeftHandler(Handler):
     def _handle(cls, msg: 'proto.PlayerLeft', game: 'Game') -> str:
         client = game.clients[msg.player_id]
         del game.clients[msg.player_id]
+        if len(game.clients) == 1:
+            game.lobby = True
         return f'{client.name} has left'
 
 
@@ -124,12 +127,14 @@ class StartTurnHandler(Handler):
             game.board = Board()
             for client in game.clients.values():
                 client.player = Player()
-        client = game.clients[msg.player_id]
-        game.player_turn = client == game.player_client
-        game.player_id_turn = msg.player_id
+        turn_client = game.clients[msg.turn_player_id]
+        game.player_turn = turn_client == game.player_client
+        game.turn_player_id = msg.turn_player_id
         game.tiles_left = msg.tiles_left
         game.player_client.player.tiles = msg.tiles
-        return ('Your' if game.player_turn else f'{client.name}\'s') + ' turn!'
+        for player in msg.player_tile_counts:
+            game.clients[player.id].tile_count = player.tile_count
+        return ('Your' if game.player_turn else f'{turn_client.name}\'s') + ' turn!'
 
 
 class EndTurnHandler(Handler):
@@ -148,9 +153,7 @@ class EndGameHandler(Handler):
         game.lobby = True
         for client in game.clients.values():
             client.ready = False
-        msg.players.sort(key=lambda player: player.score, reverse=True)
-        return 'Game over!' + ''.join(f'\n{game.clients[player.player_id].name} - {player.score} points'
-                                      for player in msg.players)
+        return 'Game over!'
 
 
 class PlayerChatHandler(Handler):

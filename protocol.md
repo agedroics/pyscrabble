@@ -103,7 +103,7 @@ n | name (UTF-8 string)
 ### Start turn
 ```
 1 | 0x0B
-1 | player ID
+1 | turn player ID
 1 | tiles left
 1 | n
 repeat n times:
@@ -111,11 +111,16 @@ repeat n times:
     1 | points
     1 | m
     m | letter (UTF-8 symbol)
+1 | k
+repeat k times:
+    1 | player ID
+    1 | tile count
 ```
-- `player ID` is the ID of the player whose turn it is
+- `turn player ID` is the ID of the player whose turn it is
 - `tiles left` is the amount of drawable tiles left
 - `n` is the amount of tiles on the player's rack
 - `m` = 0 means blank tile
+- `tile count` is the amount of tiles for every player
 
 ### End turn
 ```
