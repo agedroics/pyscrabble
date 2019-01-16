@@ -567,7 +567,8 @@ class InfoFrame(tk.Frame):
                 .grid(row=i + 1, column=2, padx=(6, 0), pady=(0, 2), sticky=tk.E)
             tk.Label(self.__players_frame, text=client.player.score)\
                 .grid(row=i + 1, column=3, padx=(6, 0), pady=(0, 2), sticky=tk.E)
-        self.__tiles_left_lbl.configure(text=f'Tiles left: {self.__conn.game.tiles_left}')
+        self.__tiles_left_lbl.configure(text=f'Tiles left: {self.__conn.game.tiles_left}',
+                                        fg='black' if self.__conn.game.tiles_left else 'red')
 
     def __on_leave(self):
         self.__conn.stop()
@@ -613,14 +614,11 @@ class GameFrame(tk.Frame):
                 if self.__conn.game.player_turn:
                     self.master.focus_force()
             elif isinstance(msg, proto.EndGame):
+                self.__set_active_frame(LobbyFrame(self, self.__conn))
                 msg.players.sort(key=lambda player: player.score, reverse=True)
-                for player in msg.players:
-                    self.__conn.game.clients[player.player_id].player.score = player.score
-                self.info_frame.update_contents()
                 text = '\n'.join(f'{self.__conn.game.clients[player.player_id].name}: {player.score} points'
                                  for player in msg.players)
-                tk.messagebox.showinfo('Game over!', text)
-                self.__set_active_frame(LobbyFrame(self, self.__conn))
+                self.after(100, lambda: tk.messagebox.showinfo('Game over!', text))
             elif isinstance(msg, proto.PlayerLeft) and len(self.__conn.game.clients) == 1:
                 global server
                 if server:

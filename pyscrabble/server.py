@@ -454,6 +454,7 @@ class PlaceTilesHandler(Handler):
                     client_.send_msg(proto.Notification(f'Deducted {deduction} points'))
             client.player.score += all_sums
             client.send_msg(proto.Notification(f'Awarded {all_sums} points'))
+            game.lobby = True
             end_game = proto.EndGame([proto.EndGamePlayer(client.player_id, client.player.score)
                                       for client in game.clients])
             game.send_to_all(end_game)
