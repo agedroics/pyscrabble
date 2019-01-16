@@ -199,7 +199,6 @@ class Handler(ABC):
 def _start_game(game: 'Game'):
     game.board = Board()
     game.load_tiles()
-    game.lobby = False
     game.turns_without_score = 0
     for client in game.clients:
         client.ready = False
@@ -213,6 +212,7 @@ def _start_game(game: 'Game'):
     for client in game.clients:
         start_turn = proto.StartTurn(game.turn_player_id, tiles_left, client.player.tiles, player_tile_counts)
         client.send_msg(start_turn)
+    game.lobby = False
 
 
 class ReadyHandler(Handler):
@@ -237,8 +237,17 @@ class LeaveHandler(Handler):
             if len(game.clients) > 1 and all(client.ready for client in game.clients):
                 _start_game(game)
         elif len(game.clients) < 2:
+            for client_ in game.clients:
+                deduction = sum(tile.points for tile in client_.player.tiles)
+                client_.send_msg(proto.Notification(f'Deducted {deduction} points'))
+                client_.player.score -= sum(tile.points for tile in client_.player.tiles)
+            end_game = proto.EndGame([proto.EndGamePlayer(client.player_id, client.player.score)
+                                      for client in game.clients])
+            game.send_to_all(end_game)
             game.lobby = True
         elif game.turn_player_id == client.player_id:
+            game.free_tiles += client.player.tiles
+            random.shuffle(game.free_tiles)
             game.turn_player_id = game.clients[i % len(game.clients)].player_id
             tiles_left = len(game.free_tiles)
             player_tile_counts = [proto.StartTurnPlayer(client.player_id, len(client.player.tiles))
@@ -251,7 +260,6 @@ class LeaveHandler(Handler):
 def _end_turn_without_score(client: 'Client', game: 'Game'):
     if game.turns_without_score == 5:
         game.send_to_all(proto.Notification('6 consecutive scoreless turns have occurred!'))
-        game.lobby = True
         for client_ in game.clients:
             deduction = sum(tile.points for tile in client_.player.tiles)
             client_.send_msg(proto.Notification(f'Deducted {deduction} points'))
@@ -259,15 +267,16 @@ def _end_turn_without_score(client: 'Client', game: 'Game'):
         end_game = proto.EndGame([proto.EndGamePlayer(client.player_id, client.player.score)
                                   for client in game.clients])
         game.send_to_all(end_game)
+        game.lobby = True
     else:
         game.turns_without_score += 1
         game.send_to_all(proto.EndTurn(game.turn_player_id, client.player.score, []))
         game.turn_player_id = game.clients[(game.clients.index(client) + 1) % len(game.clients)].player_id
-        tiles_left = len(game.free_tiles)
         player_tile_counts = [proto.StartTurnPlayer(client.player_id, len(client.player.tiles))
                               for client in game.clients]
         for client_ in game.clients:
-            start_turn = proto.StartTurn(game.turn_player_id, tiles_left, client_.player.tiles, player_tile_counts)
+            start_turn = proto.StartTurn(game.turn_player_id, len(game.free_tiles), client_.player.tiles,
+                                         player_tile_counts)
             client_.send_msg(start_turn)
 
 
@@ -433,6 +442,8 @@ class PlaceTilesHandler(Handler):
         for tile in tiles:
             accessor(tile.row, tile.col).tile = tile
 
+        placed_tiles = [proto.EndTurnTile(tile.position, tile.points, tile.letter) for tile in tiles]
+        game.send_to_all(proto.EndTurn(game.turn_player_id, client.player.score, placed_tiles))
         game.turns_without_score = 0
 
         tile_ids = {tile.id for tile in tiles}
@@ -454,20 +465,18 @@ class PlaceTilesHandler(Handler):
                     client_.send_msg(proto.Notification(f'Deducted {deduction} points'))
             client.player.score += all_sums
             client.send_msg(proto.Notification(f'Awarded {all_sums} points'))
-            game.lobby = True
             end_game = proto.EndGame([proto.EndGamePlayer(client.player_id, client.player.score)
                                       for client in game.clients])
             game.send_to_all(end_game)
+            game.lobby = True
             return
 
-        placed_tiles = [proto.EndTurnTile(tile.position, tile.points, tile.letter) for tile in tiles]
-        game.send_to_all(proto.EndTurn(game.turn_player_id, client.player.score, placed_tiles))
         game.turn_player_id = game.clients[(game.clients.index(client) + 1) % len(game.clients)].player_id
-        tiles_left = len(game.free_tiles)
         player_tile_counts = [proto.StartTurnPlayer(client.player_id, len(client.player.tiles))
                               for client in game.clients]
         for client_ in game.clients:
-            start_turn = proto.StartTurn(game.turn_player_id, tiles_left, client_.player.tiles, player_tile_counts)
+            start_turn = proto.StartTurn(game.turn_player_id, len(game.free_tiles), client_.player.tiles,
+                                         player_tile_counts)
             client_.send_msg(start_turn)
 
 

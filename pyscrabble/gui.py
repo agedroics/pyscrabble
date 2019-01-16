@@ -579,7 +579,15 @@ class InfoFrame(tk.Frame):
 
 
 class GameFrame(tk.Frame):
-    _update_msgs = {proto.JoinOk, proto.PlayerJoined, proto.PlayerLeft, proto.PlayerReady, proto.StartTurn, proto.EndGame}
+    _update_msgs = {
+        proto.JoinOk,
+        proto.PlayerJoined,
+        proto.PlayerLeft,
+        proto.PlayerReady,
+        proto.StartTurn,
+        proto.EndTurn,
+        proto.EndGame
+    }
 
     def __init__(self, master: tk.Tk, name: str, ip: str, port: int):
         super().__init__(master)
@@ -615,17 +623,11 @@ class GameFrame(tk.Frame):
                     self.master.deiconify()
                     self.master.focus_force()
             elif isinstance(msg, proto.EndGame):
-                self.__set_active_frame(LobbyFrame(self, self.__conn))
                 msg.players.sort(key=lambda player: player.score, reverse=True)
-                text = '\n'.join(f'{self.__conn.game.clients[player.player_id].name}: {player.score} points'
-                                 for player in msg.players)
-                self.after(100, lambda: tk.messagebox.showinfo('Game over!', text))
-            elif isinstance(msg, proto.PlayerLeft) and len(self.__conn.game.clients) == 1:
-                global server
-                if server:
-                    self.__set_active_frame(LobbyFrame(self, self.__conn))
-                else:
-                    self.master.set_frame(MainMenu(self.master))
+                text = '\n'.join(f'{i}. {self.__conn.game.clients[player.player_id].name}: {player.score} points'
+                                 for i, player in enumerate(msg.players))
+                tk.messagebox.showinfo('Game over!', text)
+                self.__set_active_frame(LobbyFrame(self, self.__conn))
 
             if msg.__class__ in GameFrame._update_msgs:
                 self.__active_frame.update_contents()

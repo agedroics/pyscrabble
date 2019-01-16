@@ -107,8 +107,6 @@ class PlayerLeftHandler(Handler):
     def _handle(cls, msg: 'proto.PlayerLeft', game: 'Game') -> str:
         client = game.clients[msg.player_id]
         del game.clients[msg.player_id]
-        if len(game.clients) == 1:
-            game.lobby = True
         return f'{client.name} has left'
 
 
