@@ -534,7 +534,7 @@ class InfoFrame(tk.Frame):
         self.__tiles_left_lbl = tk.Label(self)
         self.__tiles_left_lbl.grid(row=0, column=0, padx=(0, 6), sticky=tk.W)
 
-        self.__leave_btn = tk.Button(self, text='Leave', command=self.__on_leave)\
+        tk.Button(self, text='Leave', command=self.__on_leave)\
             .grid(row=0, column=1, ipadx=20, sticky=tk.E)
 
         self.__players_frame = tk.Frame(self, bd=1, relief=tk.SUNKEN, padx=2)
@@ -568,7 +568,7 @@ class InfoFrame(tk.Frame):
             tk.Label(self.__players_frame, text=client.player.score)\
                 .grid(row=i + 1, column=3, padx=(6, 0), pady=(0, 2), sticky=tk.E)
         self.__tiles_left_lbl.configure(text=f'Tiles left: {self.__conn.game.tiles_left}',
-                                        fg='red' if len(self.__conn.game.tiles_left) < 7 else 'black')
+                                        fg='red' if self.__conn.game.tiles_left < 7 else 'black')
 
     def __on_leave(self):
         self.__conn.stop()
