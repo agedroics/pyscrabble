@@ -84,7 +84,7 @@ class StartGame(ABC, tk.Frame):
         self.__ip_entry.insert(0, '127.0.0.1')
         self.__ip_entry.grid(row=1, column=1, ipady=2, padx=(0, 14), pady=(0, 6), sticky=tk.EW)
 
-        tk.Label(container, text='Port:') .grid(row=1, column=2, pady=(0, 6), sticky=tk.W)
+        tk.Label(container, text='Port:').grid(row=1, column=2, pady=(0, 6), sticky=tk.W)
 
         self.__port_entry = tk.Entry(container, width=6, validate='key',
                                      validatecommand=(self.register(_validate_port), '%d', '%P'))
@@ -122,9 +122,17 @@ class HostGame(StartGame):
     def _configure_container(self, container: tk.LabelFrame):
         container.config(text='Host Game')
 
+        tk.Label(container, text='Language:').grid(row=2, column=0, pady=(0, 6), sticky=tk.W)
+
+        self.__lang = tk.StringVar()
+        self.__lang.set('en')
+
+        tk.OptionMenu(container, self.__lang, 'en', 'lv')\
+            .grid(row=2, column=1, pady=(0, 6), sticky=tk.W)
+
     def _button_action(self, name: str, ip: str, port: int):
         global server
-        server = Server()
+        server = Server(self.__lang.get())
         try:
             server.start(ip, port)
             try:

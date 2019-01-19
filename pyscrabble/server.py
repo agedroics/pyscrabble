@@ -14,12 +14,11 @@ from pyscrabble.model import Player, Board, Tile, SquareType
 words: Set[str] = None
 
 
-def load_words():
+def load_words(lang: str):
     global words
-    if not words:
-        with resource_stream(__name__, 'words') as stream:
-            with gzip.open(stream, mode='rt') as f:
-                words = set(line.strip() for line in f)
+    with resource_stream(__name__, f'words_{lang}') as stream:
+        with gzip.open(stream, mode='rt') as f:
+            words = set(line.strip() for line in f)
 
 
 class Client:
@@ -35,9 +34,9 @@ class Client:
 
 
 class Server:
-    def __init__(self):
+    def __init__(self, lang: str):
         self.__socket: socket = None
-        self.game = Game()
+        self.game = Game(lang)
 
     def __handle_connection(self, stream: 'proto.Stream'):
         msg = stream.get_msg()
@@ -84,7 +83,7 @@ class Server:
             self.__socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.__socket.bind((ip, port))
             self.__socket.listen(1)
-            load_words()
+            load_words(self.game.lang)
             Thread(target=self.__listen_connections, daemon=True).start()
             Thread(target=self.game.process_incoming_requests, daemon=True).start()
 
@@ -95,7 +94,7 @@ class Server:
 
 
 class Game:
-    _tiles: List[Tuple[str, int]] = [
+    _tiles_en: List[Tuple[str, int]] = [
         *2 * [(None, 0)],
 
         *12 * [('E', 1)],
@@ -131,9 +130,60 @@ class Game:
         ('Q', 10),
         ('Z', 10)
     ]
-    _tiles = [Tile(tile_id, points, letter) for tile_id, (letter, points) in enumerate(_tiles)]
+    _tiles_en = [Tile(tile_id, points, letter) for tile_id, (letter, points) in enumerate(_tiles_en)]
 
-    def __init__(self):
+    _tiles_lv: List[Tuple[str, int]] = [
+        *2 * [(None, 0)],
+
+        *11 * [('A', 1)],
+        *9 * [('I', 1)],
+        *8 * [('S', 1)],
+        *6 * [('E', 1)],
+        *6 * [('T', 1)],
+        *5 * [('R', 1)],
+        *5 * [('U', 1)],
+
+        *4 * [('Ā', 2)],
+        *4 * [('K', 2)],
+        *4 * [('M', 2)],
+        *4 * [('N', 2)],
+        *3 * [('L', 2)],
+        *3 * [('P', 2)],
+
+        *3 * [('D', 3)],
+        *3 * [('O', 3)],
+        *3 * [('V', 3)],
+        *2 * [('Z', 3)],
+
+        *2 * [('Ē', 4)],
+        *2 * [('Ī', 4)],
+        *2 * [('J', 4)],
+
+        ('B', 5),
+        ('C', 5),
+        ('G', 5),
+
+        ('Ņ', 6),
+        ('Š', 6),
+        ('Ū', 6),
+
+        ('Ļ', 8),
+        ('Ž', 8),
+
+        ('Č', 10),
+        ('F', 10),
+        ('Ģ', 10),
+        ('H', 10),
+        ('Ķ', 10)
+    ]
+    _tiles_lv = [Tile(tile_id, points, letter) for tile_id, (letter, points) in enumerate(_tiles_lv)]
+
+    _tiles: Dict[str, List[Tuple[str, int]]] = {
+        'en': _tiles_en,
+        'lv': _tiles_lv
+    }
+
+    def __init__(self, lang: str):
         self.board: 'Board' = None
         self.free_tiles: List['Tile'] = None
         self.clients: List['Client'] = []
@@ -142,6 +192,7 @@ class Game:
         self.turn_player_id: int = None
         self.queue_in = Queue()
         self.turns_without_score: int = None
+        self.lang = lang
 
     def find_free_player_id(self) -> int:
         taken_ids = set((client.player_id for client in self.clients))
@@ -154,7 +205,7 @@ class Game:
                 client.send_msg(msg)
 
     def load_tiles(self):
-        self.free_tiles = Game._tiles.copy()
+        self.free_tiles = Game._tiles[self.lang].copy()
         random.shuffle(self.free_tiles)
 
     def process_incoming_requests(self):
